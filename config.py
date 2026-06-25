@@ -1,0 +1,26 @@
+import os
+
+# Telegram / hosting
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip()
+SECRET_PATH = os.getenv("SECRET_PATH", "darsai-webhook").strip().strip("/")
+
+# Product
+BOT_NAME = os.getenv("BOT_NAME", "DarsAI")
+DEFAULT_LANGUAGE = os.getenv("DEFAULT_LANGUAGE", "en")
+
+# Database
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+AI_MEMORY_ENABLED = os.getenv("AI_MEMORY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+
+# AI provider
+AI_PROVIDER = os.getenv("AI_PROVIDER", "groq").lower().strip()
+AI_MODEL = os.getenv("AI_MODEL", "llama-3.1-8b-instant").strip()
+AI_MAX_HISTORY_MESSAGES = int(os.getenv("AI_MAX_HISTORY_MESSAGES", "16"))
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+
+# Subscription MVP settings
+FREE_DAILY_AI_LIMIT = int(os.getenv("FREE_DAILY_AI_LIMIT", "30"))
