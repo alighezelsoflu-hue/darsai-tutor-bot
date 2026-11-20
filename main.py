@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
@@ -12,6 +12,11 @@ from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
 from modules.db import close_pool
 from modules.math.math import register_math_handlers
 from modules.math.shared import init_math_db
+from modules.i18n import t
+from modules.student import init_student_db
+from modules.ui.core import Screen
+from modules.ui.home import home_keyboard
+from modules.ui.router import register_ui_handlers
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
@@ -31,32 +36,10 @@ SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 telegram_app = Application.builder().token(TOKEN).concurrent_updates(True).build()
 
 
-def start_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎓 Choose level", callback_data="main:level"), InlineKeyboardButton("🧮 Math tutor", callback_data="menu:math")],
-        [InlineKeyboardButton("✍️ Practice", callback_data="main:practice"), InlineKeyboardButton("📈 Plot", callback_data="main:plot")],
-        [InlineKeyboardButton("🤖 AI help", callback_data="main:ai"), InlineKeyboardButton("📊 Progress", callback_data="main:progress")],
-        [InlineKeyboardButton("💎 Subscription", callback_data="main:subscribe")],
-    ])
-
-
-def start_text() -> str:
-    return (
-        f"Welcome to {BOT_NAME} 🎓\n\n"
-        "Not just answers. Real learning.\n\n"
-        "I help students learn step by step with lessons, practice, quizzes, plotting, and AI tutor explanations.\n\n"
-        "Start here:\n"
-        "1. Choose your level\n"
-        "2. Pick a math topic\n"
-        "3. Learn, practice, check answers, and track progress\n\n"
-        "Current MVP: Math tutor.\n"
-        "Coming later: Physics, Chemistry, Biology, Data Science, and more."
-    )
-
-
 def help_text() -> str:
     return (
         f"{BOT_NAME} help 📚\n\n"
+        "Tip: you don't need commands. Tap /start and use the buttons.\n\n"
         "Main commands:\n"
         "/start - open the main menu\n"
         "/math - open the math menu\n"
@@ -77,16 +60,11 @@ def help_text() -> str:
     )
 
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-    await update.message.reply_text(start_text(), reply_markup=start_keyboard())
-
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not update.message or not update.effective_user or not update.effective_chat:
         return
-    await update.message.reply_text(help_text(), reply_markup=start_keyboard())
+    screen = await Screen.load(update, context)
+    await update.message.reply_text(help_text(), reply_markup=home_keyboard(screen))
 
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -166,27 +144,15 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def setup_bot_commands() -> None:
-    commands = [
-        BotCommand("start", "Open DarsAI menu"),
-        BotCommand("help", "Help"),
-        BotCommand("math", "Math menu"),
-        BotCommand("mathhelp", "Math help"),
-        BotCommand("math_tutor", "AI math tutor"),
-        BotCommand("solve", "Solve math"),
-        BotCommand("practice", "Practice math"),
-        BotCommand("quiz", "Quiz"),
-        BotCommand("check", "Check answer"),
-        BotCommand("plot", "Plot function"),
-        BotCommand("progress", "Progress"),
-        BotCommand("aihelp", "AI help"),
-        BotCommand("chat", "AI chat"),
-        BotCommand("subscribe", "Subscription"),
-    ]
-    await telegram_app.bot.set_my_commands(commands[:100])
+    """Telegram's "/" menu shows only /start and /help. Every other command still works when typed."""
+    for language_code in (None, "fa"):
+        lang = language_code or "en"
+        commands = [BotCommand("start", t(lang, "command.start")), BotCommand("help", t(lang, "command.help"))]
+        await telegram_app.bot.set_my_commands(commands, language_code=language_code)
 
 
 def register_handlers() -> None:
-    telegram_app.add_handler(CommandHandler("start", start_command))
+    register_ui_handlers(telegram_app)
     telegram_app.add_handler(CommandHandler("help", help_command))
     telegram_app.add_handler(CommandHandler("subscribe", subscribe_command))
     register_ai_handlers(telegram_app)
@@ -199,10 +165,16 @@ def register_handlers() -> None:
 register_handlers()
 
 
+def init_databases() -> None:
+    """Blocking. Create every table once at startup."""
+    init_ai_db()
+    init_math_db()
+    init_student_db()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await asyncio.to_thread(init_ai_db)
-    await asyncio.to_thread(init_math_db)
+    await asyncio.to_thread(init_databases)
     await telegram_app.initialize()
     await telegram_app.start()
     await setup_bot_commands()

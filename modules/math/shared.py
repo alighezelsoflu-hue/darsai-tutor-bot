@@ -6,6 +6,7 @@ import re
 from typing import Callable, Dict, List, Optional, Tuple
 
 from modules.db import connection, db_configured
+from modules.student import get_student, set_level
 
 LEVELS = {
     "middle": "middle_school",
@@ -32,7 +33,6 @@ LEVEL_LABELS = {
 DEFAULT_LEVEL = "high_school"
 
 # In-memory fallbacks, used only when DATABASE_URL is not set (local testing).
-PROFILE_FALLBACK: Dict[Tuple[int, int], Dict[str, str]] = {}
 PROGRESS_FALLBACK: Dict[Tuple[int, int, str, str], Dict[str, int]] = {}
 ACTIVE_QUESTION_FALLBACK: Dict[Tuple[int, int], Dict[str, object]] = {}
 
@@ -90,26 +90,24 @@ def normalize_topic(text: str) -> str:
 
 
 def get_user_level(chat_id: int, user_id: int) -> str:
+    """The student's level. It is the same in every chat."""
+    level = get_student(user_id)["level"]
+    if level:
+        return normalize_level(level)
     if db_configured():
+        # Levels used to be saved per chat in darsai_user_profile. Keep reading them for older students.
         with connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT level FROM darsai_user_profile WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
             row = cur.fetchone()
-        return row[0] if row else DEFAULT_LEVEL
-    return PROFILE_FALLBACK.get((chat_id, user_id), {}).get("level", DEFAULT_LEVEL)
+        if row:
+            return normalize_level(row[0])
+    return DEFAULT_LEVEL
 
 
 def set_user_level(chat_id: int, user_id: int, level: str) -> str:
+    """Save the student's level for every chat. chat_id is kept for callers' convenience."""
     level = normalize_level(level)
-    if db_configured():
-        with connection() as conn, conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO darsai_user_profile (chat_id, user_id, level)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (chat_id, user_id)
-                DO UPDATE SET level=EXCLUDED.level, updated_at=NOW();
-            """, (chat_id, user_id, level))
-        return level
-    PROFILE_FALLBACK.setdefault((chat_id, user_id), {})["level"] = level
+    set_level(user_id, level)
     return level
 
 

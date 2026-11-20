@@ -86,15 +86,12 @@ def main() -> None:
     # Imported only now, because config.py reads the environment at import time.
     from telegram import Update
 
-    from main import setup_bot_commands, telegram_app
-    from modules.ai import init_ai_db
+    from main import init_databases, setup_bot_commands, telegram_app
     from modules.db import close_pool, db_configured
-    from modules.math.shared import init_math_db
 
     async def post_init(app) -> None:
         await ensure_not_production(app.bot)
-        await asyncio.to_thread(init_ai_db)
-        await asyncio.to_thread(init_math_db)
+        await asyncio.to_thread(init_databases)
         await setup_bot_commands()
         storage = "PostgreSQL (LOCAL_DATABASE_URL)" if db_configured() else "in-memory (lost on exit)"
         logger.info("Polling as @%s. Storage: %s. Press Ctrl+C to stop.", app.bot.username, storage)
