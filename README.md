@@ -2,6 +2,8 @@
 
 A scalable Telegram AI tutor MVP focused on math learning.
 
+Requires Python 3.10 or newer (python-telegram-bot 22 does not support older versions).
+
 ## Run on Render
 Start command:
 
@@ -9,28 +11,37 @@ Start command:
 uvicorn main:api --host 0.0.0.0 --port $PORT
 ```
 
-## Required environment variables
+## Environment variables
+
+See `.env.example` for a full template.
 
 ```text
-TELEGRAM_BOT_TOKEN=...
-WEBHOOK_URL=https://your-render-service.onrender.com
-SECRET_PATH=darsai-webhook
-AI_PROVIDER=groq
+TELEGRAM_BOT_TOKEN=...                       required
+WEBHOOK_URL=https://your-render-service.onrender.com   required
+SECRET_PATH=darsai-webhook                   URL path Telegram posts updates to
+TELEGRAM_WEBHOOK_SECRET=...                  optional; derived from the bot token if unset
+AI_PROVIDER=groq                             groq | openrouter | openai
 GROQ_API_KEY=...
 AI_MODEL=llama-3.1-8b-instant
-DATABASE_URL=postgresql://... optional but recommended
+DATABASE_URL=postgresql://...                optional but recommended (memory, progress, limits survive restarts)
+DB_POOL_MAX_SIZE=5
 AI_MEMORY_ENABLED=true
+FREE_DAILY_AI_LIMIT=30                       AI messages per user per UTC day; 0 = unlimited
 ```
+
+The webhook only accepts requests that carry Telegram's `X-Telegram-Bot-Api-Secret-Token`
+header. The bot registers that secret with Telegram on startup, so no extra setup is needed.
 
 ## Test locally
 
-```powershell
-$env:TELEGRAM_BOT_TOKEN="123456:TEST_TOKEN"
-$env:WEBHOOK_URL="https://example.com"
-$env:SECRET_PATH="test-webhook"
-python -m py_compile main.py modules/ai.py modules/math/math.py modules/math/plot.py
-python -c "import main; print('main OK')"
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m unittest discover -s tests -t .
 ```
+
+The tests use in-memory storage and never call Telegram or an AI provider.
 
 ## Core commands
 

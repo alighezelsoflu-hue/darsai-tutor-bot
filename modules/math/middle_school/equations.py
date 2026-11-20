@@ -1,5 +1,7 @@
 import random
 
+from ..shared import poly_text
+
 TOPICS = {"linear_equations": "One-step and two-step linear equations"}
 
 
@@ -20,6 +22,16 @@ def practice(difficulty: str = "easy") -> dict:
     x = random.randint(2, 12)
     b = random.randint(-10, 10)
     c = a * x + b
-    sign = "+" if b >= 0 else "-"
-    question = f"Solve: {a}x {sign} {abs(b)} = {c}"
-    return {"question": question, "answer": str(x), "topic": "linear_equations", "level": "middle_school", "explanation": f"Subtract {b} from both sides, then divide by {a}. x = {x}."}
+    if b > 0:
+        first_step = f"Subtract {b} from both sides: {a}x = {c - b}. "
+    elif b < 0:
+        first_step = f"Add {-b} to both sides: {a}x = {c - b}. "
+    else:
+        first_step = ""
+    return {
+        "question": f"Solve: {poly_text((a, 1), (b, 0))} = {c}",
+        "answer": str(x),
+        "topic": "linear_equations",
+        "level": "middle_school",
+        "explanation": f"{first_step}Divide both sides by {a}: x = {x}.",
+    }

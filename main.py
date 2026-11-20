@@ -1,11 +1,22 @@
-from fastapi import FastAPI, Request, HTTPException
+import asyncio
+import hmac
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Request
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
-from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_URL
-from modules.ai import ai_callback_handler, aihelp_command, init_ai_db, register_ai_handlers
+from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
+from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
+from modules.db import close_pool
 from modules.math.math import register_math_handlers
 from modules.math.shared import init_math_db
+
+logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
+# httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger("darsai")
 
 if not TOKEN:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN environment variable.")
@@ -14,9 +25,10 @@ if not WEBHOOK_URL:
 
 WEBHOOK_PATH = SECRET_PATH.strip("/") if SECRET_PATH else "darsai-webhook"
 FULL_WEBHOOK_URL = f"{WEBHOOK_URL.rstrip('/')}/{WEBHOOK_PATH}"
+SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
-telegram_app = Application.builder().token(TOKEN).build()
-api = FastAPI(title=f"{BOT_NAME} Telegram Tutor Bot")
+# Handle updates concurrently so one slow AI answer does not hold up every other student.
+telegram_app = Application.builder().token(TOKEN).concurrent_updates(True).build()
 
 
 def start_keyboard() -> InlineKeyboardMarkup:
@@ -144,6 +156,15 @@ async def main_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error("Error while handling an update", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text("Sorry, something went wrong. Please try again.")
+        except Exception:
+            logger.warning("Could not send the error message to the user.")
+
+
 async def setup_bot_commands() -> None:
     commands = [
         BotCommand("start", "Open DarsAI menu"),
@@ -172,26 +193,34 @@ def register_handlers() -> None:
     register_math_handlers(telegram_app)
     telegram_app.add_handler(CallbackQueryHandler(main_callback_handler, pattern=r"^(main:|menu:)"))
     telegram_app.add_handler(CallbackQueryHandler(ai_callback_handler, pattern=r"^ai:"))
+    telegram_app.add_error_handler(error_handler)
 
 
 register_handlers()
 
 
-@api.on_event("startup")
-async def on_startup() -> None:
-    init_ai_db()
-    init_math_db()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await asyncio.to_thread(init_ai_db)
+    await asyncio.to_thread(init_math_db)
     await telegram_app.initialize()
     await telegram_app.start()
     await setup_bot_commands()
-    await telegram_app.bot.set_webhook(url=FULL_WEBHOOK_URL, allowed_updates=Update.ALL_TYPES)
-    print(f"{BOT_NAME} webhook set to: {FULL_WEBHOOK_URL}")
+    await telegram_app.bot.set_webhook(
+        url=FULL_WEBHOOK_URL,
+        allowed_updates=Update.ALL_TYPES,
+        secret_token=WEBHOOK_SECRET_TOKEN,
+    )
+    logger.info("%s webhook registered.", BOT_NAME)
+    try:
+        yield
+    finally:
+        await telegram_app.stop()
+        await telegram_app.shutdown()
+        await asyncio.to_thread(close_pool)
 
 
-@api.on_event("shutdown")
-async def on_shutdown() -> None:
-    await telegram_app.stop()
-    await telegram_app.shutdown()
+api = FastAPI(title=f"{BOT_NAME} Telegram Tutor Bot", lifespan=lifespan)
 
 
 @api.get("/")
@@ -200,7 +229,6 @@ async def root():
         "status": "ok",
         "bot": BOT_NAME,
         "product": "AI tutor MVP",
-        "webhook": FULL_WEBHOOK_URL,
         "mvp_modules": ["ai", "math", "plot"],
         "future_modules": ["physics", "chemistry", "biology", "data_science"],
     }
@@ -213,14 +241,15 @@ async def health():
 
 @api.post(f"/{WEBHOOK_PATH}")
 async def telegram_webhook(request: Request):
+    received_secret = request.headers.get(SECRET_HEADER, "")
+    if not hmac.compare_digest(received_secret.encode(), WEBHOOK_SECRET_TOKEN.encode()):
+        raise HTTPException(status_code=403, detail="Forbidden")
     try:
         data = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-    try:
         update = Update.de_json(data, telegram_app.bot)
-        await telegram_app.process_update(update)
-    except Exception as error:
-        print(f"Webhook processing error: {error}")
-        return {"ok": False, "error": str(error)}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid update")
+    if update is not None:
+        # Queue it and answer Telegram right away; slow AI replies must not hold the request open.
+        await telegram_app.update_queue.put(update)
     return {"ok": True}

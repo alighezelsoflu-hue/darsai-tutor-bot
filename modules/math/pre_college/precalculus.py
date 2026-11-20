@@ -1,5 +1,7 @@
 import random
 
+from ..shared import poly_text
+
 TOPICS = {"precalculus": "Functions, trigonometry, sequences, and preparation for calculus"}
 
 
@@ -17,10 +19,15 @@ def practice(difficulty: str = "medium") -> dict:
     b = random.randint(-5, 5)
     x = random.randint(-4, 4)
     y = a * x + b
+    substitution = f"{a}({x})" if a != 1 else f"({x})"
+    if b > 0:
+        substitution += f" + {b}"
+    elif b < 0:
+        substitution += f" - {-b}"
     return {
-        "question": f"For f(x) = {a}x + {b}, find f({x}).",
+        "question": f"For f(x) = {poly_text((a, 1), (b, 0))}, find f({x}).",
         "answer": str(y),
         "topic": "precalculus",
         "level": "pre_college",
-        "explanation": f"Substitute x={x}: f({x}) = {a}({x}) + {b} = {y}."
+        "explanation": f"Substitute x = {x}: f({x}) = {substitution} = {y}.",
     }

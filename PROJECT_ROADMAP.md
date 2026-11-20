@@ -69,6 +69,8 @@ Start with Render + Neon + hosted LLM API. Later migrate to:
 - `main.py`
 - `config.py`
 - `modules/ai.py`
+- `modules/db.py` (shared PostgreSQL connection pool)
+- `modules/common.py` (languages, long-message splitting)
 - `modules/math/math.py`
 - `modules/math/plot.py`
 - `modules/math/shared.py`

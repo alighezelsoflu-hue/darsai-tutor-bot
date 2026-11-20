@@ -1,5 +1,7 @@
 import random
 
+from ..shared import poly_text
+
 TOPICS = {"quadratics": "Quadratic equations and parabolas"}
 
 
@@ -18,19 +20,25 @@ def lesson(topic: str = "quadratics") -> str:
     )
 
 
+def factor_text(root: int) -> str:
+    """The factor that is zero at this root: 2 -> (x - 2), -3 -> (x + 3), 0 -> x."""
+    if root == 0:
+        return "x"
+    return f"({poly_text((1, 1), (-root, 0))})"
+
+
 def practice(difficulty: str = "medium") -> dict:
     r1 = random.randint(-5, 5)
     r2 = random.randint(-5, 5)
     while r2 == r1:
         r2 = random.randint(-5, 5)
+    r1, r2 = sorted([r1, r2])
     b = -(r1 + r2)
     c = r1 * r2
-    b_text = f"+ {b}" if b >= 0 else f"- {abs(b)}"
-    c_text = f"+ {c}" if c >= 0 else f"- {abs(c)}"
     return {
-        "question": f"Solve: x^2 {b_text}x {c_text} = 0",
-        "answer": ",".join(str(v) for v in sorted([r1, r2])),
+        "question": f"Solve: {poly_text((1, 2), (b, 1), (c, 0))} = 0",
+        "answer": f"{r1},{r2}",
         "topic": "quadratics",
         "level": "high_school",
-        "explanation": f"The equation factors as (x - {r1})(x - {r2}) = 0, so x = {r1} or x = {r2}."
+        "explanation": f"The equation factors as {factor_text(r1)}{factor_text(r2)} = 0, so x = {r1} or x = {r2}.",
     }

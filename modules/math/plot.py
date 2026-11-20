@@ -1,3 +1,4 @@
+import asyncio
 import math
 import re
 from io import BytesIO
@@ -7,9 +8,10 @@ from PIL import Image, ImageDraw, ImageFont
 from telegram import InputFile, Update
 from telegram.ext import CommandHandler, ContextTypes, Application
 
-from .shared import safe_eval, nice
+from .shared import Expression, nice
 
 MAX_PLOT_POINTS = 900
+_FUNCTION_PREFIX = re.compile(r"^\s*(?:y|f\s*\(\s*x\s*\))\s*=\s*", flags=re.I)
 
 
 def load_font(size: int = 20):
@@ -31,11 +33,9 @@ def parse_plot_input(text: str) -> Tuple[str, float, float]:
         xmin = float(match.group(1))
         xmax = float(match.group(2))
         text = text[:match.start()] + text[match.end():]
-    expr = text.strip()
-    if expr.lower().startswith("y="):
-        expr = expr[2:].strip()
-    if expr.lower().startswith("f(x)="):
-        expr = expr[5:].strip()
+    expr = _FUNCTION_PREFIX.sub("", text).strip()
+    if not expr:
+        raise ValueError("Please provide a function, e.g. /plot y=x^2 range -5 5")
     if xmax <= xmin:
         raise ValueError("Range end must be greater than range start.")
     if xmax - xmin > 10000:
@@ -69,21 +69,16 @@ def padded_range(values):
 def create_plot(expr: str, xmin: float, xmax: float) -> BytesIO:
     width, height = 1200, 780
     left, top, right, bottom = 95, 95, 1140, 660
+    f = Expression(expr)
     xs, ys = [], []
     for i in range(MAX_PLOT_POINTS):
         x = xmin + (xmax - xmin) * i / (MAX_PLOT_POINTS - 1)
+        xs.append(x)
         try:
-            y = safe_eval(expr, x=x)
-            if math.isfinite(y):
-                xs.append(x)
-                ys.append(y)
-            else:
-                xs.append(x)
-                ys.append(None)
-        except Exception:
-            xs.append(x)
+            ys.append(f(x))
+        except ValueError:
             ys.append(None)
-    valid_y = [y for y in ys if y is not None and math.isfinite(y)]
+    valid_y = [y for y in ys if y is not None]
     if not valid_y:
         raise ValueError("Could not evaluate the function in this range.")
     ymin, ymax = padded_range(valid_y)
@@ -134,9 +129,9 @@ async def plot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not update.message:
         return
     try:
-        expr, xmin, xmax = parse_plot_input(" ".join(context.args))
-        image = create_plot(expr, xmin, xmax)
-    except Exception as error:
+        expr, xmin, xmax = parse_plot_input(" ".join(context.args or []))
+        image = await asyncio.to_thread(create_plot, expr, xmin, xmax)
+    except ValueError as error:
         await update.message.reply_text(
             "Plot error.\n\n"
             f"Error: {error}\n\n"
