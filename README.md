@@ -43,6 +43,26 @@ python -m unittest discover -s tests -t .
 
 The tests use in-memory storage and never call Telegram or an AI provider.
 
+## Run locally with a test bot
+
+`run_local.py` runs the same handlers with long polling, so you don't need a public URL.
+Render keeps using `uvicorn main:api` with the webhook.
+
+1. Create a separate test bot with @BotFather. Don't use the production token.
+2. Create `.env.local` (git-ignored) in the project folder:
+
+   ```text
+   LOCAL_TELEGRAM_BOT_TOKEN=123456:your-test-bot-token
+   GROQ_API_KEY=...
+   # LOCAL_DATABASE_URL=postgresql://...   optional; empty = in-memory storage
+   ```
+
+3. Run `python run_local.py` and message your test bot. Press Ctrl+C to stop.
+
+The script only reads `LOCAL_TELEGRAM_BOT_TOKEN` and `LOCAL_DATABASE_URL` and ignores
+`TELEGRAM_BOT_TOKEN` and `DATABASE_URL`, so it can't reach the production bot or database. It also
+refuses to start if the bot has a webhook set, because polling would delete the production webhook.
+
 ## Core commands
 
 ```text
