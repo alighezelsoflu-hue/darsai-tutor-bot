@@ -113,19 +113,23 @@ class Screen:
             return await self.update.effective_message.reply_text(text, reply_markup=markup)
         return await self.context.bot.send_message(self.chat_id, text, reply_markup=markup)
 
-    async def show(self, text: str, markup: Optional[InlineKeyboardMarkup] = None) -> None:
-        """Replace the message whose button was pressed. Send a new message when it can't be edited."""
+    async def show(self, text: str, markup: Optional[InlineKeyboardMarkup] = None) -> int:
+        """Replace the message whose button was pressed. Send a new message when it can't be edited.
+
+        Returns the id of the message that shows the screen now.
+        """
         message = self.query.message if self.query is not None else None
         if isinstance(message, Message) and message.text is not None:
             try:
                 await self.query.edit_message_text(text, reply_markup=markup)
-                return
+                return message.message_id
             except BadRequest as error:
                 if "not modified" in str(error).lower():
-                    return
+                    return message.message_id
                 logger.warning("Could not edit message, sending a new one: %s", error)
         elif isinstance(message, Message):
             # A photo can't turn into a text message. Retire its buttons and send a new message instead.
             with suppress(BadRequest):
                 await self.query.edit_message_reply_markup(reply_markup=None)
-        await self.send(text, markup)
+        sent = await self.send(text, markup)
+        return sent.message_id

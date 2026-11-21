@@ -7,52 +7,22 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from config import BOT_NAME
 from modules.ai import ai_error_message, ask_ai_with_memory, clear_history
 from modules.common import LANGUAGES, extract_language, reply_long
+from modules.ui import practice
+from modules.ui.core import Screen
 from .plot import register_plot_handlers
 from .prompts import math_tutor_prompt
 from .shared import (
     LEVEL_LABELS,
     UnsupportedEquation,
-    answers_match,
-    clear_active_question,
-    get_active_question,
     get_user_level,
     nice,
+    normalize_difficulty,
     normalize_level,
-    normalize_topic,
     progress_report,
-    record_progress,
-    save_active_question,
     set_user_level,
     solve_equation,
 )
-from .middle_school import equations as middle_equations
-from .high_school import algebra as high_algebra
-from .high_school import quadratics as high_quadratics
-from .pre_college import precalculus as pre_calculus
-from .university import calculus as uni_calculus
-
-
-TOPIC_MODULES = {
-    ("middle_school", "linear_equations"): middle_equations,
-    ("high_school", "algebra"): high_algebra,
-    ("high_school", "quadratics"): high_quadratics,
-    ("pre_college", "precalculus"): pre_calculus,
-    ("university", "calculus"): uni_calculus,
-}
-
-TOPIC_ALIASES = {
-    "equations": "linear_equations",
-}
-
-DEFAULT_TOPIC = {
-    "middle_school": "linear_equations",
-    "high_school": "algebra",
-    "pre_college": "precalculus",
-    "university": "calculus",
-}
-
-# Every AI memory topic the math tutor writes to ("math" is used by /solve tutor).
-MATH_MEMORY_TOPICS = ("math",) + tuple(sorted({topic for _, topic in TOPIC_MODULES}))
+from .topics import DEFAULT_TOPIC, MATH_MEMORY_TOPICS, TOPIC_MODULES, canonical_topic, get_topic_module
 
 
 def math_main_keyboard() -> InlineKeyboardMarkup:
@@ -102,19 +72,12 @@ def parse_level_topic_text(text: str, fallback_level: str) -> Tuple[str, str, st
             topic = DEFAULT_TOPIC.get(level, topic)
             consumed = 1
     if len(parts) > consumed:
-        maybe_topic = normalize_topic(parts[consumed])
-        maybe_topic = TOPIC_ALIASES.get(maybe_topic, maybe_topic)
+        maybe_topic = canonical_topic(parts[consumed])
         if (level, maybe_topic) in TOPIC_MODULES:
             topic = maybe_topic
             consumed += 1
     rest = " ".join(parts[consumed:]).strip()
     return level, topic, rest
-
-
-def get_topic_module(level: str, topic: str):
-    topic = normalize_topic(topic)
-    topic = TOPIC_ALIASES.get(topic, topic)
-    return TOPIC_MODULES.get((level, topic)) or TOPIC_MODULES.get((level, DEFAULT_TOPIC.get(level, "algebra")))
 
 
 async def math_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -157,11 +120,7 @@ async def lesson_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     fallback = await asyncio.to_thread(get_user_level, update.effective_chat.id, update.effective_user.id)
     level, topic, _ = parse_level_topic_text(" ".join(context.args or []), fallback)
-    module = get_topic_module(level, topic)
-    if not module:
-        await update.message.reply_text("I do not have that topic yet. Try /mathhelp")
-        return
-    await update.message.reply_text(module.lesson(topic))
+    await update.message.reply_text(get_topic_module(level, topic).lesson(topic))
 
 
 async def math_tutor_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -252,22 +211,14 @@ async def solve_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def practice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/practice [level] [topic] [easy|medium|hard]: the same question screen as the ✍️ Practice button."""
     if not update.message or not update.effective_chat or not update.effective_user:
         return
-    chat_id, user_id = update.effective_chat.id, update.effective_user.id
-    fallback = await asyncio.to_thread(get_user_level, chat_id, user_id)
+    fallback = await asyncio.to_thread(get_user_level, update.effective_chat.id, update.effective_user.id)
     level, topic, rest = parse_level_topic_text(" ".join(context.args or []), fallback)
-    module = get_topic_module(level, topic)
-    if not module:
-        await update.message.reply_text("Topic not found. Try /mathhelp")
-        return
-    question = module.practice(rest or "medium")
-    await asyncio.to_thread(save_active_question, chat_id, user_id, question)
-    await update.message.reply_text(
-        f"Practice — {LEVEL_LABELS.get(question['level'], question['level'])} / {question['topic']} ✍️\n\n"
-        f"{question['question']}\n\n"
-        "Reply with /check your_answer"
-    )
+    difficulty = normalize_difficulty(rest.split()[0] if rest else "")
+    screen = await Screen.load(update, context)
+    await practice.new_question(screen, topic, practice.DIFFICULTY_MODE.get(difficulty, practice.AUTO))
 
 
 async def quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -275,10 +226,10 @@ async def quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/check answer: the same as typing the answer (one more try, then the solution)."""
     if not update.message or not update.effective_chat or not update.effective_user:
         return
-    chat_id, user_id = update.effective_chat.id, update.effective_user.id
-    question = await asyncio.to_thread(get_active_question, chat_id, user_id)
+    question = await practice.active_question(update.effective_chat.id, update.effective_user.id)
     if not question:
         await update.message.reply_text("No active practice question. Try /practice high_school algebra")
         return
@@ -286,24 +237,14 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not answer:
         await update.message.reply_text("Usage: /check your_answer")
         return
-    correct = answers_match(str(question["answer"]), answer)
-    await asyncio.to_thread(record_progress, chat_id, user_id, question["level"], question["topic"], correct)
-    if correct:
-        await asyncio.to_thread(clear_active_question, chat_id, user_id)
-        await update.message.reply_text(f"Correct ✅\n\n{question['explanation']}")
-    else:
-        await update.message.reply_text(
-            "Not quite yet. That is okay — mistakes are part of learning.\n\n"
-            f"Expected answer: {question['answer']}\n"
-            f"Explanation: {question['explanation']}\n\n"
-            "Try another one with /practice"
-        )
+    screen = await Screen.load(update, context)
+    await practice.handle_answer(screen, question, answer)
 
 
 async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_chat or not update.effective_user:
         return
-    report = await asyncio.to_thread(progress_report, update.effective_chat.id, update.effective_user.id)
+    report = await asyncio.to_thread(progress_report, update.effective_user.id)
     await update.message.reply_text(report)
 
 
@@ -333,7 +274,7 @@ async def math_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "math_action:plot":
         await query.edit_message_text("Use:\n/plot y=x^2 range -5 5\n/plot sin(x) range -6.28 6.28")
     elif data == "math_action:progress":
-        report = await asyncio.to_thread(progress_report, chat_id, user_id)
+        report = await asyncio.to_thread(progress_report, user_id)
         await query.edit_message_text(report)
 
 

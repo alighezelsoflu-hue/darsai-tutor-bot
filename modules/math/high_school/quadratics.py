@@ -1,4 +1,5 @@
 import random
+from fractions import Fraction
 
 from ..shared import poly_text
 
@@ -28,17 +29,29 @@ def factor_text(root: int) -> str:
 
 
 def practice(difficulty: str = "medium") -> dict:
-    r1 = random.randint(-5, 5)
-    r2 = random.randint(-5, 5)
-    while r2 == r1:
-        r2 = random.randint(-5, 5)
-    r1, r2 = sorted([r1, r2])
-    b = -(r1 + r2)
-    c = r1 * r2
+    """easy: two positive whole roots. medium: roots from -5 to 5. hard: one root is a fraction, like 1/2."""
+    if difficulty == "hard":
+        p = random.choice([2, 3])
+        q = random.choice([n for n in range(-7, 8) if n % p])
+        r = random.randint(-5, 5)
+        equation = poly_text((p, 2), (-p * r - q, 1), (q * r, 0))
+        factored = f"{factor_text(r)}({poly_text((p, 1), (-q, 0))})"
+        roots = sorted([Fraction(q, p), Fraction(r)])
+    else:
+        low, high = (1, 6) if difficulty == "easy" else (-5, 5)
+        r1, r2 = sorted(random.sample(range(low, high + 1), 2))
+        equation = poly_text((1, 2), (-(r1 + r2), 1), (r1 * r2, 0))
+        factored = f"{factor_text(r1)}{factor_text(r2)}"
+        roots = [Fraction(r1), Fraction(r2)]
     return {
-        "question": f"Solve: {poly_text((1, 2), (b, 1), (c, 0))} = 0",
-        "answer": f"{r1},{r2}",
-        "topic": "quadratics",
         "level": "high_school",
-        "explanation": f"The equation factors as {factor_text(r1)}{factor_text(r2)} = 0, so x = {r1} or x = {r2}.",
+        "topic": "quadratics",
+        "difficulty": difficulty if difficulty in ("easy", "hard") else "medium",
+        "prompt": "solve",
+        "formula": [f"{equation} = 0"],
+        "answer": ",".join(str(root) for root in roots),
+        "steps": [
+            ["factor", {}, f"{factored} = 0"],
+            ["zero_factors", {}, ", ".join(f"x = {root}" for root in roots)],
+        ],
     }

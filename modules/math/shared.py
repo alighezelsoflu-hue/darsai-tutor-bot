@@ -3,6 +3,7 @@ import json
 import math
 import operator
 import re
+import threading
 from typing import Callable, Dict, List, Optional, Tuple
 
 from modules.db import connection, db_configured
@@ -32,9 +33,12 @@ LEVEL_LABELS = {
 
 DEFAULT_LEVEL = "high_school"
 
+DIFFICULTIES = ("easy", "medium", "hard")
+
 # In-memory fallbacks, used only when DATABASE_URL is not set (local testing).
-PROGRESS_FALLBACK: Dict[Tuple[int, int, str, str], Dict[str, int]] = {}
+MASTERY_FALLBACK: Dict[Tuple[int, str, str], Dict[str, float]] = {}
 ACTIVE_QUESTION_FALLBACK: Dict[Tuple[int, int], Dict[str, object]] = {}
+_FALLBACK_LOCK = threading.Lock()
 
 
 # ------------------------------------------------------------
@@ -58,17 +62,18 @@ def init_math_db() -> None:
             );
         """)
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_math_progress (
-                chat_id BIGINT NOT NULL,
+            CREATE TABLE IF NOT EXISTS darsai_mastery (
                 user_id BIGINT NOT NULL,
                 level TEXT NOT NULL,
                 topic TEXT NOT NULL,
+                mastery DOUBLE PRECISION NOT NULL DEFAULT 0,
                 correct_count INTEGER NOT NULL DEFAULT 0,
                 wrong_count INTEGER NOT NULL DEFAULT 0,
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY(chat_id, user_id, level, topic)
+                PRIMARY KEY(user_id, level, topic)
             );
         """)
+        _copy_old_progress(cur)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS darsai_active_question (
                 chat_id BIGINT NOT NULL,
@@ -87,6 +92,11 @@ def normalize_level(text: str, default: str = DEFAULT_LEVEL) -> str:
 
 def normalize_topic(text: str) -> str:
     return (text or "general").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def normalize_difficulty(text: str, default: str = "") -> str:
+    key = (text or "").strip().lower()
+    return next((d for d in DIFFICULTIES if key in (d, d[0])), default)
 
 
 def get_user_level(chat_id: int, user_id: int) -> str:
@@ -111,54 +121,121 @@ def set_user_level(chat_id: int, user_id: int, level: str) -> str:
     return level
 
 
-def record_progress(chat_id: int, user_id: int, level: str, topic: str, correct: bool) -> None:
+# Mastery is how well a student knows a topic, from 0 to 1. It is the same in every chat.
+# A correct answer moves it a step towards the ceiling of the question's difficulty, so easy questions
+# alone can never reach 100%. A missed question takes away a share of it.
+MASTERY_CEILING = {"easy": 0.6, "medium": 0.85, "hard": 1.0}
+MASTERY_GAIN = {"first_try": 0.3, "second_try": 0.15}
+MASTERY_LOSS = {"easy": 0.25, "medium": 0.2, "hard": 0.15}
+OUTCOMES = ("first_try", "second_try", "missed")
+
+
+def next_mastery(mastery: float, difficulty: str, outcome: str) -> float:
+    if outcome in MASTERY_GAIN:
+        mastery += MASTERY_GAIN[outcome] * max(0.0, MASTERY_CEILING[difficulty] - mastery)
+    else:
+        mastery -= MASTERY_LOSS[difficulty] * mastery
+    return min(1.0, max(0.0, mastery))
+
+
+def recommended_difficulty(mastery: float) -> str:
+    if mastery < 0.4:
+        return "easy"
+    if mastery < 0.7:
+        return "medium"
+    return "hard"
+
+
+def _copy_old_progress(cur) -> None:
+    """Copy counts from darsai_math_progress (per chat, before mastery existed) into darsai_mastery once.
+
+    Mastery is estimated as if every old answer was a medium question. Students who already have
+    mastery rows are left alone, so running this at every startup changes nothing after the first time.
+    """
+    cur.execute("SELECT to_regclass('darsai_math_progress') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        return
+    cur.execute("""
+        INSERT INTO darsai_mastery (user_id, level, topic, mastery, correct_count, wrong_count)
+        SELECT user_id, level, topic,
+               CASE WHEN SUM(correct_count + wrong_count) = 0 THEN 0
+                    ELSE 0.85 * SUM(correct_count)::float / SUM(correct_count + wrong_count)
+                         * (1 - power(0.7::float, LEAST(SUM(correct_count + wrong_count), 50)::float))
+               END,
+               SUM(correct_count), SUM(wrong_count)
+        FROM darsai_math_progress
+        GROUP BY user_id, level, topic
+        ON CONFLICT (user_id, level, topic) DO NOTHING;
+    """)
+
+
+def record_answer(user_id: int, level: str, topic: str, difficulty: str, outcome: str) -> Tuple[float, float]:
+    """Update the student's mastery of a topic after a practice question. Returns (before, after)."""
     level = normalize_level(level)
     topic = normalize_topic(topic)
-    correct_delta = 1 if correct else 0
-    wrong_delta = 0 if correct else 1
+    difficulty = normalize_difficulty(difficulty, default="medium")
+    if outcome not in OUTCOMES:
+        raise ValueError(f"Unknown outcome: {outcome}")
+    correct = 0 if outcome == "missed" else 1
+    if db_configured():
+        key = (user_id, level, topic)
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO darsai_mastery (user_id, level, topic) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                key,
+            )
+            # Lock the row, so two answers at the same moment can't both start from the same value.
+            cur.execute(
+                "SELECT mastery FROM darsai_mastery WHERE user_id=%s AND level=%s AND topic=%s FOR UPDATE", key
+            )
+            before = float(cur.fetchone()[0])
+            after = next_mastery(before, difficulty, outcome)
+            cur.execute("""
+                UPDATE darsai_mastery
+                SET mastery=%s, correct_count=correct_count + %s, wrong_count=wrong_count + %s, updated_at=NOW()
+                WHERE user_id=%s AND level=%s AND topic=%s
+            """, (after, correct, 1 - correct) + key)
+        return before, after
+    with _FALLBACK_LOCK:
+        entry = MASTERY_FALLBACK.setdefault((user_id, level, topic), {"mastery": 0.0, "correct": 0, "wrong": 0})
+        before = entry["mastery"]
+        entry["mastery"] = next_mastery(before, difficulty, outcome)
+        entry["correct"] += correct
+        entry["wrong"] += 1 - correct
+        # Most recently practised first, like the database query.
+        MASTERY_FALLBACK[(user_id, level, topic)] = MASTERY_FALLBACK.pop((user_id, level, topic))
+        return before, entry["mastery"]
+
+
+def get_mastery(user_id: int) -> Dict[Tuple[str, str], Dict[str, float]]:
+    """{(level, topic): {"mastery", "correct", "wrong"}} for every topic the student has practised.
+
+    The most recently practised topic comes first.
+    """
     if db_configured():
         with connection() as conn, conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO darsai_math_progress (chat_id, user_id, level, topic, correct_count, wrong_count)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (chat_id, user_id, level, topic)
-                DO UPDATE SET
-                    correct_count = darsai_math_progress.correct_count + EXCLUDED.correct_count,
-                    wrong_count = darsai_math_progress.wrong_count + EXCLUDED.wrong_count,
-                    updated_at = NOW();
-            """, (chat_id, user_id, level, topic, correct_delta, wrong_delta))
-        return
-    key = (chat_id, user_id, level, topic)
-    PROGRESS_FALLBACK.setdefault(key, {"correct": 0, "wrong": 0})
-    PROGRESS_FALLBACK[key]["correct"] += correct_delta
-    PROGRESS_FALLBACK[key]["wrong"] += wrong_delta
-
-
-def progress_report(chat_id: int, user_id: int) -> str:
-    rows = []
-    if db_configured():
-        with connection() as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT level, topic, correct_count, wrong_count
-                FROM darsai_math_progress
-                WHERE chat_id=%s AND user_id=%s
-                ORDER BY updated_at DESC
-                LIMIT 20;
-            """, (chat_id, user_id))
+                SELECT level, topic, mastery, correct_count, wrong_count
+                FROM darsai_mastery WHERE user_id=%s ORDER BY updated_at DESC
+            """, (user_id,))
             rows = cur.fetchall()
-    else:
-        for (c, u, level, topic), counts in PROGRESS_FALLBACK.items():
-            if c == chat_id and u == user_id:
-                rows.append((level, topic, counts["correct"], counts["wrong"]))
+        return {(level, topic): {"mastery": float(m), "correct": c, "wrong": w} for level, topic, m, c, w in rows}
+    with _FALLBACK_LOCK:
+        entries = [(key, dict(value)) for key, value in MASTERY_FALLBACK.items() if key[0] == user_id]
+    return {(level, topic): value for (_, level, topic), value in reversed(entries)}
 
+
+def progress_report(user_id: int) -> str:
+    """Plain-English progress summary for the old /progress command."""
+    rows = list(get_mastery(user_id).items())[:20]
     if not rows:
         return "No math progress yet. Try /practice high_school algebra"
-
     lines = ["Your DarsAI math progress 📈", ""]
-    for level, topic, correct, wrong in rows:
-        total = correct + wrong
-        mastery = int(round(100 * correct / total)) if total else 0
-        lines.append(f"- {LEVEL_LABELS.get(level, level)} / {topic}: {correct} correct, {wrong} wrong, mastery ≈ {mastery}%")
+    for (level, topic), entry in rows:
+        lines.append(
+            f"- {LEVEL_LABELS.get(level, level)} / {topic}: {entry['correct']} correct, "
+            f"{entry['wrong']} wrong, mastery {int(round(100 * entry['mastery']))}%"
+        )
     return "\n".join(lines)
 
 
@@ -173,7 +250,8 @@ def save_active_question(chat_id: int, user_id: int, question: Dict[str, object]
                 DO UPDATE SET question=EXCLUDED.question, created_at=NOW();
             """, (chat_id, user_id, json.dumps(question)))
         return
-    ACTIVE_QUESTION_FALLBACK[(chat_id, user_id)] = dict(question)
+    # A JSON round trip, like the JSONB column: the caller's dict and the stored one never share lists.
+    ACTIVE_QUESTION_FALLBACK[(chat_id, user_id)] = json.loads(json.dumps(question))
 
 
 def get_active_question(chat_id: int, user_id: int) -> Optional[Dict[str, object]]:
@@ -188,15 +266,30 @@ def get_active_question(chat_id: int, user_id: int) -> Optional[Dict[str, object
             return None
         return json.loads(row[0]) if isinstance(row[0], str) else row[0]
     question = ACTIVE_QUESTION_FALLBACK.get((chat_id, user_id))
-    return dict(question) if question else None
+    return json.loads(json.dumps(question)) if question else None
 
 
-def clear_active_question(chat_id: int, user_id: int) -> None:
+def clear_active_question(chat_id: int, user_id: int, question_id: Optional[str] = None) -> bool:
+    """Forget the active question. With question_id, only if it is still that question.
+
+    Returns True if a question was removed, so when two answers arrive at once only one of them counts.
+    """
     if db_configured():
         with connection() as conn, conn.cursor() as cur:
-            cur.execute("DELETE FROM darsai_active_question WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
-        return
-    ACTIVE_QUESTION_FALLBACK.pop((chat_id, user_id), None)
+            if question_id is None:
+                cur.execute("DELETE FROM darsai_active_question WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
+            else:
+                cur.execute(
+                    "DELETE FROM darsai_active_question WHERE chat_id=%s AND user_id=%s AND question->>'id'=%s",
+                    (chat_id, user_id, question_id),
+                )
+            return cur.rowcount > 0
+    with _FALLBACK_LOCK:
+        question = ACTIVE_QUESTION_FALLBACK.get((chat_id, user_id))
+        if question is None or (question_id is not None and question.get("id") != question_id):
+            return False
+        del ACTIVE_QUESTION_FALLBACK[(chat_id, user_id)]
+        return True
 
 
 # ------------------------------------------------------------
@@ -405,8 +498,8 @@ def solve_equation(equation: str) -> Dict[str, object]:
 # Answer checking
 # ------------------------------------------------------------
 
-# Separators between several answers: "2, 3", "x = 2 or x = 3", "2 یا 3".
-_ANSWER_SPLIT = re.compile(r"\s*(?:,|;|&|\bor\b|\band\b|\bیا\b|\bو\b)\s*", re.IGNORECASE)
+# Separators between several answers: "2, 3", "x = 2 or x = 3", "2 یا 3", "2، 3" (Persian comma).
+_ANSWER_SPLIT = re.compile(r"\s*(?:,|;|،|؛|&|\bor\b|\band\b|\bیا\b|\bو\b)\s*", re.IGNORECASE)
 _ANSWER_SAMPLE_POINTS = (-1.7, 0.6, 2.3)
 
 
@@ -427,6 +520,27 @@ def _answer_values(text: str) -> Tuple[float, ...]:
 
 def _values_close(left: Tuple[float, ...], right: Tuple[float, ...]) -> bool:
     return all(abs(p - q) <= 1e-6 * max(1.0, abs(p), abs(q)) for p, q in zip(left, right))
+
+
+def answer_count(text: str) -> int:
+    """How many separate answers the text contains ("2, 3" has two)."""
+    return len(_answer_parts(text))
+
+
+def readable_answer(text: str) -> bool:
+    """True when every part of the text is a number or an expression we can evaluate.
+
+    Practice uses this to tell an answer ("5", "x = 2 or 3") from other text ("I don't know").
+    """
+    parts = _answer_parts(text)
+    if not parts:
+        return False
+    try:
+        for part in parts:
+            _answer_values(part)
+    except ValueError:
+        return False
+    return True
 
 
 def answers_match(expected: str, given: str) -> bool:
@@ -473,6 +587,14 @@ def poly_text(*terms: Tuple[int, int]) -> str:
         else:
             parts.append(f"- {body}" if coefficient < 0 else f"+ {body}")
     return " ".join(parts) if parts else "0"
+
+
+def number_step(number: int, formula: str) -> list:
+    """The solution step that takes a number off one side: subtract it, or add its opposite.
+
+    Step numbers are always positive, because a minus sign inside a Persian sentence gets reordered.
+    """
+    return ["subtract", {"n": number}, formula] if number > 0 else ["add", {"n": -number}, formula]
 
 
 def nice(value: float, digits: int = 6) -> str:

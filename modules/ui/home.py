@@ -12,6 +12,7 @@ from modules.i18n import LANGUAGE_NAMES, UI_LANGUAGES, level_label, local_digits
 from modules.math.shared import get_user_level, set_user_level
 from modules.student import set_language
 
+from . import practice
 from .core import MENU_LABELS, Screen, menu_reply_keyboard
 
 LEVEL_ORDER = ("middle_school", "high_school", "pre_college", "university")
@@ -62,12 +63,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Typed text in a private chat. For now: the Menu button, or a nudge towards the menu."""
+    """Typed text in a private chat: the Menu button, an answer to a practice question, or a nudge to the menu."""
     message = update.effective_message
     if not message or not update.effective_user or not update.effective_chat:
         return
     screen = await Screen.load(update, context)
     pressed_menu = (message.text or "").strip() in MENU_LABELS
+    if not pressed_menu:
+        question = await practice.active_question(screen.chat_id, screen.user_id)
+        if question:
+            await practice.handle_answer(screen, question, message.text or "")
+            return
     text, markup = await home_view(screen, hint=not pressed_menu)
     await screen.send(text, markup)
 
