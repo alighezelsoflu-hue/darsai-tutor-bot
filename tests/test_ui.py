@@ -10,7 +10,7 @@ from telegram.ext import ExtBot
 
 import main
 from modules import ai, student
-from modules.i18n import STRINGS, detect_language, local_digits, t
+from modules.i18n import RTL_LANGUAGES, STRINGS, detect_language, local_digits, t
 from modules.math.shared import get_user_level
 from modules.ui import core, home, router
 
@@ -104,6 +104,15 @@ class TranslationTests(unittest.TestCase):
             for key, text in strings.items():
                 self.assertEqual(placeholders(text), placeholders(english[key]), f"{lang}:{key}")
 
+    def test_commands_in_right_to_left_text_have_a_left_to_right_mark(self):
+        # Without U+200E right before it, "/start" in a Persian sentence shows as "start/".
+        bare_command = re.compile("(?<!\u200e)/[A-Za-z]")
+        self.assertIsNotNone(bare_command.search("برای منوی خودت /start رو بفرست."))
+        self.assertIsNone(bare_command.search("برای منوی خودت \u200e/start رو بفرست."))
+        for lang in RTL_LANGUAGES:
+            for key, text in STRINGS[lang].items():
+                self.assertIsNone(bare_command.search(text), f"{lang}:{key} needs \\u200e before the /command")
+
     def test_language_detection_and_digits(self):
         self.assertEqual(detect_language("fa"), "fa")
         self.assertEqual(detect_language("fa-IR"), "fa")
@@ -132,7 +141,7 @@ class StartTests(TelegramMocks):
         run(home.start_command, text_update("/start", language_code="fa"))
         welcome, menu = self.reply_text.call_args_list
         self.assertIn("خوش اومدی", welcome.args[0])
-        self.assertIn("متوسطه دوم", menu.args[0])
+        self.assertIn("متوسطه دوم (دهم و یازدهم)", menu.args[0])
         # Mirrored: the first button (Learn) sits on the right.
         self.assertEqual(self.markup(menu).inline_keyboard[0][1].text, t("fa", "btn.learn"))
 

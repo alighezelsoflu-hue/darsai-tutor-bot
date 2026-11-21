@@ -104,7 +104,8 @@ async def show_level_picker(screen: Screen) -> None:
         s.button(level_label(s.lang, level) + (" ✓" if level == current else ""), "set", "lvl", level)
         for level in LEVEL_ORDER
     ]
-    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    # One per row: some level names are too long for half a phone screen.
+    rows = [[button] for button in buttons]
     rows.append([s.button(s.t("btn.back_settings"), "set")])
     await s.show(s.t("level.text"), s.keyboard(rows))
 

@@ -2,13 +2,15 @@
 
 Formulas never go in here as plain text inside a sentence: they are added by the code on their own
 line with a left-to-right mark, so the right-to-left layout cannot reorder them.
+A /command inside a sentence needs a left-to-right mark (\u200e) right before it, or it shows as
+"start/". A test checks this.
 """
 
 STRINGS = {
     # Levels
     "level.middle_school": "متوسطه اول",
-    "level.high_school": "متوسطه دوم",
-    "level.pre_college": "پایه دوازدهم و کنکور",
+    "level.high_school": "متوسطه دوم (دهم و یازدهم)",
+    "level.pre_college": "دوازدهم و کنکور",
     "level.university": "دانشگاه",
 
     # /start and the main menu
@@ -44,7 +46,7 @@ STRINGS = {
     "toast.cleared": "✅ {count} پیام ذخیره‌شده پاک شد",
     "toast.nothing_to_clear": "چیزی برای پاک کردن نبود",
     "toast.coming_soon": "⏳ به‌زودی",
-    "toast.not_your_menu": "این منو مال یکی دیگه‌ست. برای منوی خودت /start رو بفرست.",
+    "toast.not_your_menu": "این منو مال یکی دیگه‌ست. برای منوی خودت \u200e/start رو بفرست.",
 
     # Telegram's "/" command menu
     "command.start": "منوی اصلی",
