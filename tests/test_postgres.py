@@ -210,13 +210,17 @@ class PostgresTests(TelegramMocks):
         notify.add_notice(10, "physics", "fa")  # again: nothing changes
         notify.add_notice(10, "konkur", "en")
         notify.add_notice(11, "physics", "fa")
-        notify.add_notice(99, "astrology", "en")
+        notify.add_notice(99, "biology", "en")  # an admin
+        # Picks for Astrology from before Biology replaced it: kept, but not counted.
+        execute("INSERT INTO darsai_course_notify (user_id, course, language) VALUES (10, 'astrology', 'en'), (12, 'astrology', 'fa')")
         self.assertTrue(notify.wants_notice(10, "physics"))
         self.assertFalse(notify.wants_notice(11, "konkur"))
         self.assertEqual(execute("SELECT language FROM darsai_course_notify WHERE user_id=10 AND course='physics'"), [("en",)])
         self.assertEqual(notify.notice_summary(exclude=[99]), {
-            "students": 2, "courses": {"physics": 2, "ai": 0, "astronomy": 0, "chemistry": 0, "astrology": 0, "konkur": 1},
+            "students": 2, "courses": {"physics": 2, "chemistry": 0, "biology": 0, "ai": 0, "astronomy": 0, "konkur": 1},
         })
+        self.assertEqual(notify.notice_summary()["courses"]["biology"], 1)
+        self.assertEqual(execute("SELECT COUNT(*) FROM darsai_course_notify WHERE course='astrology'"), [(2,)])
 
     def test_stats_numbers_leave_out_admins(self):
         main.init_databases()
