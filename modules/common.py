@@ -23,6 +23,14 @@ LANGUAGES = {
 }
 
 
+# Every AI answer is sent to Telegram as plain text, so Markdown and LaTeX would show up as raw symbols.
+PLAIN_TEXT_RULE = (
+    "Write plain text only. No Markdown: no **bold**, no # headings, no - or * bullet lists, no tables or code "
+    "blocks. No LaTeX: no $, \\frac, \\sqrt, \\cdot or \\( \\). Write math with Unicode instead, like "
+    "x², x³, √(x + 1), ±, ·, ÷, ≤, ≥, ≠, π and (a + b)/c. Number steps as 1. 2. 3. if needed."
+)
+
+
 def extract_language(text: str, default: str = "English") -> Tuple[str, str]:
     """Split an optional leading language code off a command argument."""
     parts = (text or "").strip().split()

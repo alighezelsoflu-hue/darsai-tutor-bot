@@ -23,7 +23,7 @@ from config import FREE_DAILY_AI_LIMIT
 from modules.ai import AILimitReached, ask_ai_with_memory, log_ai_error
 from modules.common import LANGUAGES
 from modules.i18n import local_digits
-from modules.input_mode import get_input_mode, set_input_mode, update_input_mode
+from modules.input_mode import change_input_mode, claim_last_result, get_input_mode, set_input_mode
 from modules.math.plot import create_plot, parse_plot_input
 from modules.math.prompts import math_tutor_prompt
 from modules.math.shared import SolveError, UnsupportedEquation, get_user_level, nice, solve_equation
@@ -84,10 +84,11 @@ async def current_mode(chat_id: int, user_id: int) -> Optional[Dict]:
     return state
 
 
-async def remember(screen: Screen, state: Dict, message_id: int) -> None:
-    """Save the state with one more of the tool's messages (in groups, replies to it count)."""
-    state["message_ids"] = (state.get("message_ids", []) + [message_id])[-MAX_MESSAGE_IDS:]
-    await asyncio.to_thread(update_input_mode, screen.chat_id, screen.user_id, state)
+async def remember(screen: Screen, state: Dict, message_id: int, **fields) -> None:
+    """Add one more of the tool's messages (in groups, replies to it count), and set any fields given."""
+    await asyncio.to_thread(
+        change_input_mode, screen.chat_id, screen.user_id, state["id"], fields, message_id, MAX_MESSAGE_IDS
+    )
 
 
 async def handle_input(screen: Screen, state: Dict, text: str) -> None:
@@ -174,12 +175,14 @@ async def solve_text(screen: Screen, state: Dict, text: str) -> None:
     body, report = solve_view(screen, text)
     s = screen
     rows = [[s.button(s.t("btn.menu"), "home")]]
+    fields = {}
     if report is not None:
         result_id = secrets.token_hex(4)
-        state["last"] = {"id": result_id, "equation": text, "report": report}
+        # Only the newest result can be explained; older Explain buttons say they have expired.
+        fields["last"] = {"id": result_id, "equation": text, "report": report}
         rows.insert(0, [s.button(s.t("btn.explain"), "solve", "x", result_id)])
     sent = await s.send(f"{body}\n\n{more_hint(s, 'solve')}", s.keyboard(rows))
-    await remember(s, state, sent.message_id)
+    await remember(s, state, sent.message_id, **fields)
 
 
 async def explain_solution(screen: Screen, result_id: str) -> None:
@@ -188,9 +191,9 @@ async def explain_solution(screen: Screen, result_id: str) -> None:
     if not state or state["mode"] != "solve" or last.get("id") != result_id:
         await screen.answer(screen.t("toast.expired"))
         return
-    # Each result is explained once (the tutor costs one message of the daily limit).
-    del state["last"]
-    if not await asyncio.to_thread(update_input_mode, screen.chat_id, screen.user_id, state):
+    # Each result is explained once (the tutor costs one message of the daily limit). Only one of two
+    # quick taps can take the result out of storage.
+    if not await asyncio.to_thread(claim_last_result, screen.chat_id, screen.user_id, result_id):
         await screen.answer(screen.t("toast.expired"))
         return
     await screen.answer()  # stop the button's spinner before the slow tutor call

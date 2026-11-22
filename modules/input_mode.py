@@ -46,23 +46,60 @@ def set_input_mode(chat_id: int, user_id: int, state: Dict) -> None:
         _FALLBACK[(chat_id, user_id)] = json.loads(json.dumps(state))
 
 
-def update_input_mode(chat_id: int, user_id: int, state: Dict) -> bool:
-    """Save changes, but only while the same input mode (same id) is still set.
+def change_input_mode(
+    chat_id: int, user_id: int, state_id: str, fields: Optional[Dict] = None, message_id: Optional[int] = None,
+    max_message_ids: int = 20,
+) -> bool:
+    """In one locked step: set fields and/or add a message id, only while the mode with state_id is still set.
 
-    Returns False when the student left it in the meantime, so a mode they left never comes back.
+    It changes only what it is given, so a slow caller (the tutor) can't undo what happened meanwhile, like a
+    new equation's result. Returns False when the student left that mode, so a mode they left never comes back.
+    """
+    def apply(state: Dict) -> Dict:
+        state.update(fields or {})
+        if message_id is not None:
+            state["message_ids"] = (state.get("message_ids", []) + [message_id])[-max_message_ids:]
+        return state
+
+    if db_configured():
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT state FROM darsai_input_mode WHERE chat_id=%s AND user_id=%s FOR UPDATE", (chat_id, user_id)
+            )
+            row = cur.fetchone()
+            stored = (json.loads(row[0]) if isinstance(row[0], str) else row[0]) if row else None
+            if not stored or stored.get("id") != state_id:
+                return False
+            cur.execute(
+                "UPDATE darsai_input_mode SET state=%s::jsonb, updated_at=NOW() WHERE chat_id=%s AND user_id=%s",
+                (json.dumps(apply(stored)), chat_id, user_id),
+            )
+            return True
+    with _LOCK:
+        stored = _FALLBACK.get((chat_id, user_id))
+        if stored is None or stored.get("id") != state_id:
+            return False
+        _FALLBACK[(chat_id, user_id)] = json.loads(json.dumps(apply(stored)))
+        return True
+
+
+def claim_last_result(chat_id: int, user_id: int, result_id: str) -> bool:
+    """Remove the stored "last" result, but only if it is still the one with result_id.
+
+    Exactly one caller gets True, so two quick taps on Explain can't both ask the tutor.
     """
     if db_configured():
         with connection() as conn, conn.cursor() as cur:
             cur.execute("""
-                UPDATE darsai_input_mode SET state=%s::jsonb, updated_at=NOW()
-                WHERE chat_id=%s AND user_id=%s AND state->>'id'=%s
-            """, (json.dumps(state), chat_id, user_id, str(state["id"])))
+                UPDATE darsai_input_mode SET state = state - 'last', updated_at=NOW()
+                WHERE chat_id=%s AND user_id=%s AND state->'last'->>'id'=%s
+            """, (chat_id, user_id, result_id))
             return cur.rowcount > 0
     with _LOCK:
         stored = _FALLBACK.get((chat_id, user_id))
-        if stored is None or stored.get("id") != state["id"]:
+        if not stored or (stored.get("last") or {}).get("id") != result_id:
             return False
-        _FALLBACK[(chat_id, user_id)] = json.loads(json.dumps(state))
+        del stored["last"]
         return True
 
 

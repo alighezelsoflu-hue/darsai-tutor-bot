@@ -1,13 +1,13 @@
 import asyncio
 from typing import Tuple
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 from config import BOT_NAME
 from modules.ai import ai_error_message, ask_ai_with_memory, clear_history
 from modules.common import LANGUAGES, extract_language, reply_long
-from modules.ui import learn, practice
+from modules.ui import home, learn, practice
 from modules.ui.core import Screen
 from .plot import register_plot_handlers
 from .prompts import math_tutor_prompt
@@ -23,15 +23,6 @@ from .shared import (
     solve_equation,
 )
 from .topics import DEFAULT_TOPIC, MATH_MEMORY_TOPICS, TOPIC_MODULES, canonical_topic
-
-
-def math_main_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Middle School", callback_data="math_level:middle_school"), InlineKeyboardButton("High School", callback_data="math_level:high_school")],
-        [InlineKeyboardButton("Pre-College", callback_data="math_level:pre_college"), InlineKeyboardButton("University", callback_data="math_level:university")],
-        [InlineKeyboardButton("🧠 Math tutor", callback_data="math_action:tutor"), InlineKeyboardButton("✍️ Practice", callback_data="math_action:practice")],
-        [InlineKeyboardButton("📈 Plot", callback_data="math_action:plot"), InlineKeyboardButton("📊 Progress", callback_data="math_action:progress")],
-    ])
 
 
 def math_help_text() -> str:
@@ -81,19 +72,15 @@ def parse_level_topic_text(text: str, fallback_level: str) -> Tuple[str, str, st
 
 
 async def math_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_user or not update.effective_chat:
-        return
-    level = await asyncio.to_thread(get_user_level, update.effective_chat.id, update.effective_user.id)
-    await update.message.reply_text(
-        f"Welcome to {BOT_NAME} Math 🧮\n\nYour current level: {LEVEL_LABELS.get(level, level)}\n\nWhat would you like to do?",
-        reply_markup=math_main_keyboard(),
-    )
+    """/math opens the same main menu as /start."""
+    await home.start_command(update, context)
 
 
 async def mathhelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not update.message or not update.effective_user or not update.effective_chat:
         return
-    await update.message.reply_text(math_help_text(), reply_markup=math_main_keyboard())
+    screen = await Screen.load(update, context)
+    await update.message.reply_text(math_help_text(), reply_markup=home.home_keyboard(screen))
 
 
 LEVEL_USAGE = "Usage: /level middle_school | high_school | pre_college | university"
@@ -258,27 +245,6 @@ async def math_newchat_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(f"Cleared {deleted} math tutor memory messages." if deleted else "No math tutor memory to clear.")
 
 
-async def math_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    if not query or not update.effective_user or not update.effective_chat:
-        return
-    await query.answer()
-    data = query.data or ""
-    chat_id, user_id = update.effective_chat.id, update.effective_user.id
-    if data.startswith("math_level:"):
-        level = await asyncio.to_thread(set_user_level, chat_id, user_id, data.split(":", 1)[1])
-        await query.edit_message_text(f"Math level set to {LEVEL_LABELS.get(level, level)}.\n\nUse /practice or /math_tutor to start.")
-    elif data == "math_action:tutor":
-        await query.edit_message_text("Use:\n/math_tutor high_school algebra explain linear equations\n\nOr in Farsi:\n/math_tutor fa high_school quadratics explain quadratic formula")
-    elif data == "math_action:practice":
-        await query.edit_message_text("Use:\n/practice high_school algebra\n/practice high_school quadratics\n/practice university calculus")
-    elif data == "math_action:plot":
-        await query.edit_message_text("Use:\n/plot y=x^2 range -5 5\n/plot sin(x) range -6.28 6.28")
-    elif data == "math_action:progress":
-        report = await asyncio.to_thread(progress_report, user_id)
-        await query.edit_message_text(report)
-
-
 def register_math_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("math", math_command))
     app.add_handler(CommandHandler("mathhelp", mathhelp_command))
@@ -293,4 +259,4 @@ def register_math_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("progress", progress_command))
     app.add_handler(CommandHandler("math_newchat", math_newchat_command))
     register_plot_handlers(app)
-    app.add_handler(CallbackQueryHandler(math_callback_handler, pattern=r"^math_"))
+    # Old "math_level:" and "math_action:" buttons are handled by ui/router.py (OLD_BUTTONS).

@@ -21,7 +21,7 @@ from config import (
     OPENROUTER_API_KEY,
     WEBHOOK_URL,
 )
-from modules.common import extract_language, reply_long
+from modules.common import PLAIN_TEXT_RULE, extract_language, reply_long
 from modules.db import connection, db_configured
 
 logger = logging.getLogger(__name__)
@@ -343,7 +343,8 @@ GENERAL_TUTOR_PROMPT = (
     "Do not behave like a generic chatbot. Teach step by step. "
     "First identify the student's goal, then explain the idea, then give an example, "
     "then ask a short follow-up question. Use encouraging language. "
-    "If the student is wrong, diagnose the mistake kindly."
+    "If the student is wrong, diagnose the mistake kindly. "
+    + PLAIN_TEXT_RULE
 )
 
 

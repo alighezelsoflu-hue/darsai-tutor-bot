@@ -97,7 +97,7 @@ STRINGS = {
     # Learn
     "learn.topics": "📘 Learn · {level}\n\nPick a topic:",
     "learn.example": "📝 Example:",
-    "lesson.linear_equations.idea": "A linear equation has an unknown, x, with no powers. To solve it, get x alone on one side.",
+    "lesson.linear_equations.idea": "A linear equation has an unknown, x, and the highest power of x is 1. To solve it, get x alone on one side.",
     "lesson.linear_equations.rule": "The golden rule: whatever you do to one side, do to the other side too.",
     "lesson.algebra.idea": "When x is inside brackets, you can first divide both sides by the number in front, or expand the brackets.",
     "lesson.algebra.expand": "To expand, multiply the number in front by every term inside:",
@@ -159,6 +159,12 @@ STRINGS = {
     "toast.not_your_menu": "This menu belongs to someone else. Send /start to get your own.",
     "toast.question_over": "This question is already finished.",
     "toast.expired": "This button has expired.",
+    "toast.old_button": "This button is from an old version. Send /start for the menu.",
+
+    # Group chats
+    "group.welcome": "👋 Hi, I'm {bot}! Everyone can send /start to get their own menu. To answer my questions, reply to my messages.",
+    "group.anonymous": "😶 You're posting anonymously or as a channel, so I can't tell who you are. To use {bot}, turn off \"Remain anonymous\" or post from your own account.",
+    "error.generic": "😕 Sorry, something went wrong. Please try again.",
 
     # Telegram's "/" command menu
     "command.start": "Open the main menu",

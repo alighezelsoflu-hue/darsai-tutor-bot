@@ -13,11 +13,11 @@ from modules.db import close_pool
 from modules.input_mode import init_input_db
 from modules.math.math import register_math_handlers
 from modules.math.shared import init_math_db
-from modules.i18n import t
+from modules.i18n import detect_language, t
 from modules.student import init_student_db
 from modules.ui.core import Screen
 from modules.ui.home import home_keyboard
-from modules.ui.router import register_ui_handlers
+from modules.ui.router import register_fallback_handlers, register_ui_handlers
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
@@ -82,53 +82,12 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def main_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The old "main:subscribe" button. Other old buttons open the new screens (see ui/router.py OLD_BUTTONS)."""
     query = update.callback_query
     if not query:
         return
     await query.answer()
-    data = query.data or ""
-    if data == "menu:math":
-        await query.edit_message_text(
-            "Math menu 🧮\n\n"
-            "Use /math to open the full math menu.\n\n"
-            "Quick examples:\n"
-            "/lesson high_school algebra\n"
-            "/practice high_school quadratics\n"
-            "/math_tutor fa high_school quadratics explain quadratic formula",
-        )
-    elif data == "main:level":
-        await query.edit_message_text(
-            "Choose your level with one command:\n\n"
-            "/level middle_school\n"
-            "/level high_school\n"
-            "/level pre_college\n"
-            "/level university"
-        )
-    elif data == "main:practice":
-        await query.edit_message_text(
-            "Practice examples ✍️\n\n"
-            "/practice middle_school linear_equations\n"
-            "/practice high_school algebra\n"
-            "/practice high_school quadratics\n"
-            "/practice university calculus"
-        )
-    elif data == "main:plot":
-        await query.edit_message_text(
-            "Plot examples 📈\n\n"
-            "/plot y=x^2 range -5 5\n"
-            "/plot sin(x) range -6.28 6.28\n"
-            "/plot y=x^2-4x+3 range -5 8"
-        )
-    elif data == "main:ai":
-        await query.edit_message_text(
-            "AI tools 🤖\n\n"
-            "/aihelp - AI help\n"
-            "/chat explain how to study algebra\n"
-            "/math_tutor high_school algebra explain linear equations"
-        )
-    elif data == "main:progress":
-        await query.edit_message_text("Use /progress to see your math progress.")
-    elif data == "main:subscribe":
+    if query.data == "main:subscribe":
         await query.edit_message_text(
             "Subscription MVP 💎\n\n"
             "DarsAI is currently in free MVP testing mode. Premium plans will be added later."
@@ -138,8 +97,10 @@ async def main_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Error while handling an update", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
+        # The language from Telegram only: the database may be what failed.
+        lang = detect_language(update.effective_user.language_code if update.effective_user else None)
         try:
-            await update.effective_message.reply_text("Sorry, something went wrong. Please try again.")
+            await update.effective_message.reply_text(t(lang, "error.generic"))
         except Exception:
             logger.warning("Could not send the error message to the user.")
 
@@ -160,6 +121,7 @@ def register_handlers() -> None:
     register_math_handlers(telegram_app)
     telegram_app.add_handler(CallbackQueryHandler(main_callback_handler, pattern=r"^(main:|menu:)"))
     telegram_app.add_handler(CallbackQueryHandler(ai_callback_handler, pattern=r"^ai:"))
+    register_fallback_handlers(telegram_app)  # last: answers buttons nothing above knows
     telegram_app.add_error_handler(error_handler)
 
 

@@ -85,6 +85,9 @@ class Screen:
         self.chat_id = self.chat.id
         self.private = self.chat.type == ChatType.PRIVATE
         self.query = update.callback_query
+        pressed = self.query.message if self.query is not None else None
+        # In a forum group, messages sent after a button press go to the topic where it was pressed.
+        self.thread_id = pressed.message_thread_id if isinstance(pressed, Message) and pressed.is_topic_message else None
         self._answered = False
 
     @classmethod
@@ -112,7 +115,7 @@ class Screen:
         """Send a new message. Replies to the student's message when there is one."""
         if self.query is None and self.update.effective_message is not None:
             return await self.update.effective_message.reply_text(text, reply_markup=markup)
-        return await self.context.bot.send_message(self.chat_id, text, reply_markup=markup)
+        return await self.context.bot.send_message(self.chat_id, text, reply_markup=markup, message_thread_id=self.thread_id)
 
     async def send_long(self, text: str, markup=None) -> int:
         """Send text of any length (AI answers), split into Telegram-sized messages. The buttons go on the last one.
@@ -128,7 +131,9 @@ class Screen:
         """Send a photo. Replies to the student's message when there is one."""
         if self.query is None and self.update.effective_message is not None:
             return await self.update.effective_message.reply_photo(photo, caption=caption, reply_markup=markup)
-        return await self.context.bot.send_photo(self.chat_id, photo, caption=caption, reply_markup=markup)
+        return await self.context.bot.send_photo(
+            self.chat_id, photo, caption=caption, reply_markup=markup, message_thread_id=self.thread_id
+        )
 
     async def typing(self) -> None:
         """Show "typing…" in the chat while something slow (the AI tutor) runs."""

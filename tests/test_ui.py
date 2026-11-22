@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import string
 import time
@@ -7,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from telegram import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, Update
-from telegram.ext import ExtBot
+from telegram.ext import ApplicationHandlerStop, CallbackQueryHandler, ExtBot
 
 import main
 from modules import ai, input_mode, student
@@ -15,7 +16,7 @@ from modules.i18n import RTL_LANGUAGES, STRINGS, detect_language, local_digits, 
 from modules.math import math as math_commands
 from modules.math import shared
 from modules.math.shared import get_mastery, get_user_level, next_mastery, record_answer
-from modules.ui import core, home, practice, router, typed
+from modules.ui import core, groups, home, practice, router, tools, typed
 
 BOT = main.telegram_app.bot
 STUDENT = 42
@@ -43,9 +44,12 @@ def text_update(text: str, chat_type: str = "private", user_id: int = STUDENT, l
     return Update.de_json({"update_id": 1, "message": message}, BOT)
 
 
-def button_update(data: str, user_id: int = STUDENT, chat_type: str = "private", language_code: str = "en", photo: bool = False) -> Update:
+def button_update(data: str, user_id: int = STUDENT, chat_type: str = "private", language_code: str = "en", photo: bool = False, topic=None) -> Update:
     owner_chat = _chat(chat_type, STUDENT)
     message = {"message_id": 5, "date": DATE, "chat": owner_chat, "from": BOT_USER}
+    if topic is not None:
+        owner_chat["is_forum"] = True
+        message.update(message_thread_id=topic, is_topic_message=True)
     if photo:
         message["photo"] = [{"file_id": "p", "file_unique_id": "p", "width": 1, "height": 1}]
     else:
@@ -695,6 +699,44 @@ class StepFiveTests(TelegramMocks):
         self.assertEqual(self.provider.call_count, 1)
         self.assertIn("expired", self.answer.call_args.args[0])
 
+    def test_two_quick_taps_on_explain_ask_the_tutor_once(self):
+        self.press(f"d1:{STUDENT}:solve")
+        _, markup = self.solve("2x + 5 = 17")
+        route = self.routes(markup)["🧑‍🏫 Explain step by step"]
+        # Both taps read the stored state before either of them takes the result out.
+        snapshot = json.dumps(self.mode())
+        with patch.object(tools, "current_mode", AsyncMock(side_effect=lambda *args: json.loads(snapshot))):
+            self.press(f"d1:{STUDENT}:{route}")
+            self.press(f"d1:{STUDENT}:{route}")
+        self.assertEqual(self.provider.call_count, 1)
+        self.assertEqual(sum(ai._USAGE_FALLBACK.values()), 1, "one daily tutor message used")
+        self.assertIn("expired", self.answer.call_args.args[0])
+
+    def test_an_equation_solved_during_an_explanation_keeps_its_explain_button(self):
+        self.press(f"d1:{STUDENT}:solve")
+        _, markup = self.solve("2x + 5 = 17")
+        route = self.routes(markup)["🧑‍🏫 Explain step by step"]
+        state_id = self.mode()["id"]
+
+        async def slow_tutor(*args, **kwargs):
+            # While the tutor writes, the student solves another equation.
+            newer = {"id": "feedbeef", "equation": "3x = 9", "report": "x = 3"}
+            input_mode.change_input_mode(STUDENT, STUDENT, state_id, {"last": newer}, 81)
+            return "explanation"
+
+        self.provider.side_effect = slow_tutor
+        self.press(f"d1:{STUDENT}:{route}")
+        self.assertEqual(self.mode()["last"]["id"], "feedbeef")
+        self.assertEqual(self.mode()["message_ids"][-2:], [81, 78])
+
+    def test_tutor_is_told_to_write_plain_text(self):
+        self.press(f"d1:{STUDENT}:tutor")
+        self.type("what is a square root?")
+        system = self.provider.call_args.args[0][0]["content"]
+        for rule in ("No Markdown", "No LaTeX", "\\frac", "x²", "√"):
+            self.assertIn(rule, system)
+        self.assertIn("No LaTeX", ai.GENERAL_TUTOR_PROMPT)
+
     def test_persian_solve(self):
         student.set_language(STUDENT, "fa")
         self.press(f"d1:{STUDENT}:solve")
@@ -741,6 +783,125 @@ class StepFiveTests(TelegramMocks):
         self.assertIn("Suggested next: Quadratic equations", text)
         routes = self.routes(self.markup(self.edit_text.call_args))
         self.assertEqual(routes["✍️ Practice: Quadratic equations"], "prac:n:quadratics")
+
+
+class ReleaseOneLeftoverTests(TelegramMocks):
+    """Old buttons, unknown buttons, forum topics, anonymous senders, the group greeting and errors."""
+
+    def press_old(self, data, **kwargs):
+        run(router.old_button, button_update(data, **kwargs))
+
+    def test_old_buttons_open_the_new_screens(self):
+        expected = {
+            "menu:math": "What would you like to do?",
+            "main:level": "Choose your level",
+            "main:practice": "Practice · High School",
+            "math_action:practice": "Practice · High School",
+            "main:plot": "Type a function",
+            "math_action:plot": "Type a function",
+            "main:ai": "Type your math question",
+            "math_action:tutor": "Type your math question",
+            "main:progress": "haven't practised yet",
+            "math_action:progress": "haven't practised yet",
+        }
+        self.assertEqual(set(expected), set(router.OLD_BUTTONS))
+        for data, text in expected.items():
+            with self.subTest(data=data):
+                self.press_old(data)
+                self.assertIn(text, self.edit_text.call_args.args[0])
+
+    def test_old_level_button_saves_the_level(self):
+        self.press_old("math_level:university")
+        self.assertEqual(get_user_level(STUDENT, STUDENT), "university")
+        self.assertIn("Level: University", self.edit_text.call_args.args[0])
+        self.assertIn("Saved", self.answer.call_args.args[0])
+
+    def test_old_buttons_belong_to_whoever_presses_them(self):
+        self.press_old("main:practice", user_id=7, chat_type="supergroup")
+        buttons = self.buttons(self.markup(self.edit_text.call_args))
+        self.assertTrue(all(b.callback_data.startswith("d1:7:") for b in buttons))
+
+    def test_every_button_reaches_the_right_handler(self):
+        def first_handler(data):
+            update = button_update(data)
+            return next(h.callback for h in main.telegram_app.handlers[0]
+                        if isinstance(h, CallbackQueryHandler) and h.check_update(update))
+        for data in list(router.OLD_BUTTONS) + ["math_level:high_school"]:
+            self.assertIs(first_handler(data), router.old_button, data)
+        self.assertIs(first_handler(f"d1:{STUDENT}:home"), router.callback_router)
+        self.assertIs(first_handler("main:subscribe"), main.main_callback_handler)
+        self.assertIs(first_handler("ai:newchat"), main.ai_callback_handler)
+        for data in ("zzz", "math_unknown:1", "something:else"):
+            self.assertIs(first_handler(data), router.unknown_button, data)
+
+    def test_unknown_buttons_are_answered(self):
+        run(router.unknown_button, button_update("zzz:1"))
+        self.assertIn("old version", self.answer.call_args.args[0])
+        run(router.callback_router, button_update("d1:not-a-user:home"))
+        self.assertIn("old version", self.answer.call_args.args[0])
+        self.edit_text.assert_not_called()
+
+    def test_math_and_mathhelp_show_the_new_menu(self):
+        run(math_commands.math_command, text_update("/math"))
+        welcome, menu = self.reply_text.call_args_list
+        self.assertTrue(all(b.callback_data.startswith(f"d1:{STUDENT}:") for b in self.buttons(self.markup(menu))))
+        run(math_commands.mathhelp_command, text_update("/mathhelp"))
+        self.assertTrue(all(b.callback_data.startswith(f"d1:{STUDENT}:") for b in self.buttons(self.markup(self.reply_text.call_args))))
+
+    def test_messages_after_a_button_stay_in_the_forum_topic(self):
+        run(router.callback_router, button_update(f"d1:{STUDENT}:home", chat_type="supergroup", photo=True, topic=12))
+        self.assertEqual(self.send_message.call_args.kwargs["message_thread_id"], 12)
+        run(router.callback_router, button_update(f"d1:{STUDENT}:home", chat_type="supergroup", photo=True))
+        self.assertIsNone(self.send_message.call_args.kwargs["message_thread_id"])
+
+    def anonymous_update(self, text="/start", automatic_forward=False):
+        message = {
+            "message_id": 3, "date": DATE, "chat": _chat("supergroup", STUDENT), "text": text,
+            "from": {"id": 1087968824, "is_bot": True, "first_name": "Group", "username": "GroupAnonymousBot"},
+            "sender_chat": {"id": -1001, "type": "supergroup", "title": "Class"},
+            "entities": [{"type": "bot_command", "offset": 0, "length": len(text.split()[0])}] if text.startswith("/") else [],
+        }
+        if automatic_forward:
+            message["is_automatic_forward"] = True
+        return Update.de_json({"update_id": 4, "message": message}, BOT)
+
+    def test_anonymous_admins_are_asked_to_post_as_themselves(self):
+        handler = next(h for h in main.telegram_app.handlers[-1] if h.callback is groups.anonymous_sender)
+        self.assertTrue(handler.check_update(self.anonymous_update()))
+        self.assertFalse(handler.check_update(self.anonymous_update(automatic_forward=True)))
+        self.assertFalse(handler.check_update(text_update("/start", chat_type="supergroup")))
+        with self.assertRaises(ApplicationHandlerStop):
+            run(groups.anonymous_sender, self.anonymous_update())
+        text = self.reply_text.call_args.args[0]
+        self.assertIn("Remain anonymous", text)
+        self.assertIn("ناشناس ماندن", text)
+
+    def membership_update(self, old_status, new_status, language_code="fa"):
+        bot = {"id": 1, "is_bot": True, "first_name": "DarsAI"}
+        return Update.de_json({"update_id": 5, "my_chat_member": {
+            "chat": {"id": -1001, "type": "supergroup", "title": "Class"},
+            "from": _user(STUDENT, language_code), "date": DATE,
+            "old_chat_member": {"user": bot, "status": old_status},
+            "new_chat_member": {"user": bot, "status": new_status},
+        }}, BOT)
+
+    def test_greeting_when_added_to_a_group(self):
+        run(groups.bot_added, self.membership_update("left", "member"))
+        chat_id, text = self.send_message.call_args.args
+        self.assertEqual(chat_id, -1001)
+        self.assertIn("\u200e/start", text)
+        self.assertIn("ریپلای", text)
+        self.send_message.reset_mock()
+        run(groups.bot_added, self.membership_update("member", "left"))
+        self.send_message.assert_not_called()
+
+    def test_errors_are_shown_in_the_student_language(self):
+        context = SimpleNamespace(bot=BOT, error=RuntimeError("database is down"))
+        with self.assertLogs("darsai", "ERROR"):
+            asyncio.run(main.error_handler(text_update("hi", language_code="fa"), context))
+        text = self.reply_text.call_args.args[0]
+        self.assertIn("مشکلی پیش اومد", text)
+        self.assertNotIn("database", text)
 
 
 def shared_topics():
