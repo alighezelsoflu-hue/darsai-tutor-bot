@@ -11,7 +11,7 @@ from telegram import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboard
 from telegram.ext import ApplicationHandlerStop, CallbackQueryHandler, ExtBot
 
 import main
-from modules import ai, input_mode, student
+from modules import activity, ai, input_mode, premium, stats, student
 from modules.i18n import RTL_LANGUAGES, STRINGS, detect_language, local_digits, t
 from modules.math import math as math_commands
 from modules.math import shared
@@ -81,6 +81,9 @@ class TelegramMocks(unittest.TestCase):
         shared.ACTIVE_QUESTION_FALLBACK.clear()
         input_mode._FALLBACK.clear()
         ai._USAGE_FALLBACK.clear()
+        activity._FALLBACK.clear()
+        premium._FALLBACK.clear()
+        stats._seen.clear()
         # Sent messages get ids 77 (replies) and 78 (new messages). Edited ones keep 5.
         self.reply_text = self._patch(Message, "reply_text", SimpleNamespace(message_id=77))
         self.answer = self._patch(CallbackQuery, "answer")
@@ -177,7 +180,7 @@ class StartTests(TelegramMocks):
         self.assertIsInstance(self.markup(welcome), ReplyKeyboardMarkup)
         self.assertEqual(self.markup(welcome).keyboard[0][0].text, "🏠 Menu")
         buttons = self.buttons(self.markup(menu))
-        self.assertEqual(len(buttons), 7)
+        self.assertEqual(len(buttons), 8)
         self.assertTrue(all(b.callback_data.startswith(f"d1:{STUDENT}:") for b in buttons))
         self.assertIn("High School", menu.args[0])
 
@@ -562,7 +565,7 @@ class StepFiveTests(TelegramMocks):
         return {b.text: b.callback_data.split(":", 2)[2] for b in self.buttons(markup)}
 
     def test_main_menu_has_no_coming_soon_entries(self):
-        for route in ("learn", "prac", "tutor", "solve", "plot", "prog", "set"):
+        for route in ("learn", "prac", "tutor", "solve", "plot", "prog", "set", "prem"):
             self.answer.reset_mock()
             self.press(f"d1:{STUDENT}:{route}")
             self.assertNotIn("Coming soon", str(self.answer.call_args))
@@ -893,6 +896,7 @@ class ReleaseOneLeftoverTests(TelegramMocks):
             "math_action:tutor": "Type your math question",
             "main:progress": "haven't practised yet",
             "math_action:progress": "haven't practised yet",
+            "main:subscribe": "Premium isn't ready yet",
         }
         self.assertEqual(set(expected), set(router.OLD_BUTTONS))
         for data, text in expected.items():
@@ -919,7 +923,6 @@ class ReleaseOneLeftoverTests(TelegramMocks):
         for data in list(router.OLD_BUTTONS) + ["math_level:high_school"]:
             self.assertIs(first_handler(data), router.old_button, data)
         self.assertIs(first_handler(f"d1:{STUDENT}:home"), router.callback_router)
-        self.assertIs(first_handler("main:subscribe"), main.main_callback_handler)
         self.assertIs(first_handler("ai:newchat"), main.ai_callback_handler)
         for data in ("zzz", "math_unknown:1", "something:else"):
             self.assertIs(first_handler(data), router.unknown_button, data)

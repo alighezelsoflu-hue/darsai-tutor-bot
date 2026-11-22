@@ -8,12 +8,15 @@ from telegram import BotCommand, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
+from modules.activity import init_activity_db
 from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
 from modules.db import close_pool
 from modules.input_mode import init_input_db
 from modules.math.math import register_math_handlers
 from modules.math.shared import init_math_db
 from modules.i18n import detect_language, t
+from modules.premium import init_premium_db
+from modules.stats import register_stats_handlers
 from modules.student import init_student_db
 from modules.ui.core import Screen
 from modules.ui.home import home_keyboard
@@ -68,32 +71,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(help_text(), reply_markup=home_keyboard(screen))
 
 
-async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-    await update.message.reply_text(
-        "Subscription MVP 💎\n\n"
-        "For now, DarsAI is in MVP/free testing mode.\n\n"
-        "Future plans:\n"
-        "Free: basic tutor and daily AI limit\n"
-        "Premium: more AI tutor messages, progress insights, personalized study plans\n\n"
-        "Payment integration will be added after the learning MVP is validated."
-    )
-
-
-async def main_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """The old "main:subscribe" button. Other old buttons open the new screens (see ui/router.py OLD_BUTTONS)."""
-    query = update.callback_query
-    if not query:
-        return
-    await query.answer()
-    if query.data == "main:subscribe":
-        await query.edit_message_text(
-            "Subscription MVP 💎\n\n"
-            "DarsAI is currently in free MVP testing mode. Premium plans will be added later."
-        )
-
-
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Error while handling an update", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
@@ -114,12 +91,11 @@ async def setup_bot_commands() -> None:
 
 
 def register_handlers() -> None:
+    register_stats_handlers(telegram_app)  # includes the activity tracker, which runs before everything else
     register_ui_handlers(telegram_app)
     telegram_app.add_handler(CommandHandler("help", help_command))
-    telegram_app.add_handler(CommandHandler("subscribe", subscribe_command))
     register_ai_handlers(telegram_app)
     register_math_handlers(telegram_app)
-    telegram_app.add_handler(CallbackQueryHandler(main_callback_handler, pattern=r"^(main:|menu:)"))
     telegram_app.add_handler(CallbackQueryHandler(ai_callback_handler, pattern=r"^ai:"))
     register_fallback_handlers(telegram_app)  # last: answers buttons nothing above knows
     telegram_app.add_error_handler(error_handler)
@@ -134,6 +110,8 @@ def init_databases() -> None:
     init_math_db()
     init_student_db()
     init_input_db()
+    init_activity_db()
+    init_premium_db()
 
 
 @asynccontextmanager

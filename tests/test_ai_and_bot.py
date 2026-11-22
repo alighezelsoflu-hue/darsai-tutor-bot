@@ -113,6 +113,18 @@ class AIMemoryTests(unittest.TestCase):
         ai.reserve_ai_message(7)
         ai.reserve_ai_message(8)  # other users are not affected
 
+    def test_messages_are_counted_without_a_limit_too(self):
+        with patch.object(ai, "FREE_DAILY_AI_LIMIT", 0):
+            days = [ai.reserve_ai_message(7) for _ in range(5)]
+            self.assertEqual(sum(ai._USAGE_FALLBACK.values()), 5, "/stats counts tutor messages")
+            ai.release_ai_message(7, days[0])
+        self.assertEqual(sum(ai._USAGE_FALLBACK.values()), 4)
+
+    def test_old_commands_point_to_premium_at_the_limit(self):
+        text = ai.ai_error_message(ai.AILimitReached())
+        self.assertIn("/subscribe", text)
+        self.assertIn("all 3 free AI tutor messages", text)
+
     def test_ask_counts_usage_and_saves_memory(self):
         with patch.object(ai, "call_ai_provider", AsyncMock(return_value="answer")):
             answer = asyncio.run(ai.ask_ai_with_memory(1, 2, "algebra", "question", "system"))

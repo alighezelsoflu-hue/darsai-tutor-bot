@@ -169,28 +169,27 @@ def _today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-def reserve_ai_message(user_id: int) -> Optional[date]:
-    """Count one AI message against today's limit.
+def reserve_ai_message(user_id: int) -> date:
+    """Count one AI message for today. Raises AILimitReached when the user has no messages left today.
 
-    Returns the day that was charged (None when there is no limit), or raises
-    AILimitReached when the user has no messages left today.
+    Messages are counted even with no limit (FREE_DAILY_AI_LIMIT 0 or less), because /stats reports them.
+    Returns the day that was charged.
     """
-    if FREE_DAILY_AI_LIMIT <= 0:
-        return None
+    limit = FREE_DAILY_AI_LIMIT
     day = _today()
     if db_configured():
         with connection() as conn, conn.cursor() as cur:
-            # Atomic: only increments while the count is still under the limit.
+            # Atomic: only increments while the count is still under the limit (or there is no limit).
             cur.execute(
                 """
                 INSERT INTO darsai_ai_usage (user_id, day, count)
                 VALUES (%s, %s, 1)
                 ON CONFLICT (user_id, day)
                 DO UPDATE SET count = darsai_ai_usage.count + 1
-                WHERE darsai_ai_usage.count < %s
+                WHERE %s <= 0 OR darsai_ai_usage.count < %s
                 RETURNING count;
                 """,
-                (user_id, day, FREE_DAILY_AI_LIMIT),
+                (user_id, day, limit, limit),
             )
             if cur.fetchone() is None:
                 raise AILimitReached()
@@ -200,7 +199,7 @@ def reserve_ai_message(user_id: int) -> Optional[date]:
         for key in [k for k in _USAGE_FALLBACK if k[1] != day]:
             del _USAGE_FALLBACK[key]
         used = _USAGE_FALLBACK.get((user_id, day), 0)
-        if used >= FREE_DAILY_AI_LIMIT:
+        if 0 < limit <= used:
             raise AILimitReached()
         _USAGE_FALLBACK[(user_id, day)] = used + 1
     return day
@@ -369,7 +368,8 @@ def ai_error_message(error: Exception) -> str:
         return (
             f"You have used all {FREE_DAILY_AI_LIMIT} free AI tutor messages for today. "
             "The limit resets at 00:00 UTC.\n\n"
-            "You can still use /lesson, /practice, /solve and /plot."
+            "You can still use /lesson, /practice, /solve and /plot.\n\n"
+            "💎 Premium, with more tutor messages, is coming. Send /subscribe to see it and tell me what you'd want most."
         )
     log_ai_error(error)
     return "The AI tutor is not available right now. Please try again in a few minutes."

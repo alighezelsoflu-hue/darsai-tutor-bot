@@ -27,7 +27,7 @@ def home_keyboard(screen: Screen) -> InlineKeyboardMarkup:
         [s.button(s.t("btn.learn"), "learn"), s.button(s.t("btn.practice"), "prac")],
         [s.button(s.t("btn.tutor"), "tutor"), s.button(s.t("btn.solve"), "solve")],
         [s.button(s.t("btn.plot"), "plot"), s.button(s.t("btn.progress"), "prog")],
-        [s.button(s.t("btn.settings"), "set")],
+        [s.button(s.t("btn.settings"), "set"), s.button(s.t("btn.premium"), "prem")],
     ])
 
 

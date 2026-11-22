@@ -20,6 +20,7 @@ STRINGS = {
     "btn.plot": "📈 Plot",
     "btn.progress": "📊 My progress",
     "btn.settings": "⚙️ Settings",
+    "btn.premium": "💎 Premium",
     "btn.menu": "🏠 Menu",
     "btn.back_settings": "🔙 Settings",
     "btn.language": "🌐 Language",
@@ -116,6 +117,7 @@ STRINGS = {
     "tutor.more": "✏️ Type another question, or tap 🏠 Menu.",
     "tutor.more_group": "✏️ Reply to this message to ask more.",
     "ai.limit": "⏳ You've used all {limit} tutor messages for today. They come back at 00:00 UTC. Practice, Learn, Solve and Plot still work.",
+    "ai.limit_offer": "💎 Premium is coming, with more tutor messages every day. What would you want most from it? Pick as many as you like:",
     "ai.unavailable": "😕 The tutor isn't available right now. Please try again in a few minutes.",
 
     # Solve
@@ -153,8 +155,27 @@ STRINGS = {
     "progress.topic": "{topic}: {bar} {percent}%\n✅ {correct} · ❌ {wrong}",
     "progress.suggest": "💡 Suggested next: {topic}",
 
+    # 💎 Premium (not built yet: the screen asks what students would want most)
+    "premium.title": "💎 {bot} Premium",
+    "premium.intro": "Premium isn't ready yet. We're working on it, and it will add:",
+    "premium.feature.messages": "• 🧑‍🏫 More tutor messages every day",
+    "premium.feature.photo": "• 📷 Photo solving: take a photo of a problem and send it",
+    "premium.feature.guide": "• 🧭 Guide me: the tutor doesn't give you the answer. It asks one question at a time, checks each step you send, and shows exactly which step has the mistake.",
+    "premium.feature.report": "• 📅 A weekly report on your progress",
+    "premium.free_now": "For now, everything in the menu is free (the tutor has a daily limit of {limit} messages).",
+    "premium.free_now_unlimited": "For now, everything in the menu is free.",
+    "premium.question": "What would you want most from Premium? Pick as many as you like:",
+    "premium.thanks": "🙏 Thanks! Your picks are saved, and I'll let you know when Premium is ready. Tap a pick again to remove it.",
+    "premium.choice.konkur": "🎯 Konkur exam prep",
+    "premium.choice.msgs": "🧑‍🏫 More tutor messages",
+    "premium.choice.photo": "📷 Photo solving",
+    "premium.choice.plan": "📊 Study plan and weekly report",
+    "premium.choice.ai": "🤖 AI course",
+
     # Pop-up notices (shown briefly at the top of the chat)
     "toast.saved": "✅ Saved",
+    "toast.premium_thanks": "🙏 Thanks!",
+    "toast.removed": "Removed",
     "toast.cleared": "✅ Cleared {count} saved messages",
     "toast.nothing_to_clear": "Nothing to clear",
     "toast.coming_soon": "⏳ Coming soon",
