@@ -42,41 +42,6 @@ def normalize_topic(topic: str) -> str:
     return topic if _TOPIC_PATTERN.match(topic) else "general"
 
 
-def init_ai_db() -> None:
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS darsai_ai_messages (
-                id BIGSERIAL PRIMARY KEY,
-                chat_id BIGINT NOT NULL,
-                user_id BIGINT NOT NULL,
-                topic TEXT NOT NULL DEFAULT 'general',
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_darsai_ai_messages_lookup
-            ON darsai_ai_messages (chat_id, user_id, topic, id DESC);
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS darsai_ai_usage (
-                user_id BIGINT NOT NULL,
-                day DATE NOT NULL,
-                count INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY(user_id, day)
-            );
-            """
-        )
-
-
 def load_history(chat_id: int, user_id: int, topic: str, limit: int = AI_MAX_HISTORY_MESSAGES) -> List[Dict[str, str]]:
     if not AI_MEMORY_ENABLED or limit <= 0:
         return []

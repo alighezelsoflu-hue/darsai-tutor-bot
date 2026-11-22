@@ -9,18 +9,13 @@ from telegram.error import TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
-from modules.activity import init_activity_db, init_first_seen_db
 from modules.alerts import init_sentry, register_alert_handlers, scrub_console_logs, start_alerts, stop_alerts
-from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
+from modules.ai import ai_callback_handler, register_ai_handlers
 from modules.db import close_pool
-from modules.input_mode import init_input_db
 from modules.math.math import register_math_handlers
-from modules.math.shared import init_math_db
 from modules.i18n import detect_language, t
-from modules.notify import init_notify_db
-from modules.premium import init_premium_db
+from modules.migrations import migrate
 from modules.stats import register_stats_handlers
-from modules.student import init_setup_db, init_student_db
 from modules.ui.core import Screen
 from modules.ui.home import home_view
 from modules.ui.router import register_fallback_handlers, register_ui_handlers
@@ -133,16 +128,8 @@ register_handlers()
 
 
 def init_databases() -> None:
-    """Blocking. Create every table once at startup."""
-    init_ai_db()
-    init_math_db()
-    init_student_db()
-    init_input_db()
-    init_activity_db()
-    init_premium_db()
-    init_notify_db()
-    init_first_seen_db()  # after the others: the first time, it copies in the students the other tables know
-    init_setup_db()  # last: the first time, it marks every student in darsai_first_seen as set up
+    """Blocking. Bring the database schema up to date at startup (modules/migrations.py)."""
+    migrate()
 
 
 @asynccontextmanager

@@ -39,53 +39,6 @@ def utc_today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-def init_activity_db() -> None:
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_daily_activity (
-                day DATE NOT NULL,
-                user_id BIGINT NOT NULL,
-                practice_answers INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY(day, user_id)
-            );
-        """)
-
-
-def init_first_seen_db() -> None:
-    """Call after every other init_*_db. When it creates darsai_first_seen, it first copies in every student
-    the other tables know, with the earliest time they show, so existing students don't count as new.
-    """
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('darsai_first_seen') IS NOT NULL")
-        if cur.fetchone()[0]:
-            return
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_first_seen (
-                user_id BIGINT PRIMARY KEY,
-                source TEXT,
-                first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-        """)
-        cur.execute("""
-            INSERT INTO darsai_first_seen (user_id, source, first_seen_at)
-            SELECT user_id, NULL, MIN(seen) FROM (
-                SELECT user_id, created_at AS seen FROM darsai_ai_messages
-                UNION ALL SELECT user_id, day::timestamp AT TIME ZONE 'UTC' FROM darsai_ai_usage
-                UNION ALL SELECT user_id, updated_at FROM darsai_mastery
-                UNION ALL SELECT user_id, created_at FROM darsai_student
-                UNION ALL SELECT user_id, created_at FROM darsai_user_profile
-                UNION ALL SELECT user_id, day::timestamp AT TIME ZONE 'UTC' FROM darsai_daily_activity
-                UNION ALL SELECT user_id, created_at FROM darsai_premium_waitlist
-            ) AS known
-            GROUP BY user_id
-            ON CONFLICT (user_id) DO NOTHING;
-        """)
-
-
 def mark_active(user_id: int, day: Optional[date] = None, source: Optional[str] = None) -> None:
     """Note that the student used the bot today. Doing it again the same day changes nothing.
 

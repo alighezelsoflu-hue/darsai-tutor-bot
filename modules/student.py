@@ -12,59 +12,6 @@ from modules.db import connection, db_configured
 _FALLBACK: Dict[int, Dict] = {}
 
 
-def init_student_db() -> None:
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_student (
-                user_id BIGINT PRIMARY KEY,
-                language TEXT,
-                level TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-        """)
-
-
-def init_setup_db() -> None:
-    """Call after every other init_*_db. Adds setup_done and keyboard_version to darsai_student.
-
-    When it adds them, every student the bot already knows (any table with students in it) is marked as set
-    up, so only students who are new from then on get the setup questions.
-    """
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_schema = current_schema() AND table_name = 'darsai_student' AND column_name = 'setup_done'
-            )
-        """)
-        if cur.fetchone()[0]:
-            return
-        cur.execute("""
-            ALTER TABLE darsai_student
-                ADD COLUMN IF NOT EXISTS setup_done BOOLEAN NOT NULL DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS keyboard_version INTEGER NOT NULL DEFAULT 0;
-        """)
-        cur.execute("""
-            INSERT INTO darsai_student (user_id, setup_done)
-            SELECT user_id, TRUE FROM (
-                SELECT user_id FROM darsai_first_seen
-                UNION SELECT user_id FROM darsai_student
-                UNION SELECT user_id FROM darsai_user_profile
-                UNION SELECT user_id FROM darsai_mastery
-                UNION SELECT user_id FROM darsai_ai_messages
-                UNION SELECT user_id FROM darsai_ai_usage
-                UNION SELECT user_id FROM darsai_daily_activity
-                UNION SELECT user_id FROM darsai_premium_waitlist
-            ) AS known
-            ON CONFLICT (user_id) DO UPDATE SET setup_done = TRUE;
-        """)
-
-
 def get_student(user_id: int) -> Dict:
     """The student's saved settings. language and level are None until the student chooses them."""
     if db_configured():

@@ -397,7 +397,7 @@ class KeyboardNoticeTests(TelegramMocks):
         run(setup.keyboard_notice, update)
 
     def old_student(self, user_id=STUDENT):
-        """Set up before the new bottom keyboard (what init_setup_db makes of every known student)."""
+        """Set up before the new bottom keyboard (what migration 1 makes of every known student)."""
         student.finish_setup(user_id, 0)
 
     def notices(self):

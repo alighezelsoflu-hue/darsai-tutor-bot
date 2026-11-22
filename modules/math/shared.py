@@ -47,45 +47,6 @@ _FALLBACK_LOCK = threading.Lock()
 # ------------------------------------------------------------
 # All functions in this section are blocking. Call them with asyncio.to_thread.
 
-def init_math_db() -> None:
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_user_profile (
-                chat_id BIGINT NOT NULL,
-                user_id BIGINT NOT NULL,
-                level TEXT NOT NULL DEFAULT 'high_school',
-                language TEXT NOT NULL DEFAULT 'en',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY(chat_id, user_id)
-            );
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_mastery (
-                user_id BIGINT NOT NULL,
-                level TEXT NOT NULL,
-                topic TEXT NOT NULL,
-                mastery DOUBLE PRECISION NOT NULL DEFAULT 0,
-                correct_count INTEGER NOT NULL DEFAULT 0,
-                wrong_count INTEGER NOT NULL DEFAULT 0,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY(user_id, level, topic)
-            );
-        """)
-        _copy_old_progress(cur)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_active_question (
-                chat_id BIGINT NOT NULL,
-                user_id BIGINT NOT NULL,
-                question JSONB NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY(chat_id, user_id)
-            );
-        """)
-
-
 def normalize_level(text: str, default: str = DEFAULT_LEVEL) -> str:
     key = (text or "").strip().lower().replace("-", "_").replace(" ", "_")
     return LEVELS.get(key, default)
@@ -145,29 +106,6 @@ def recommended_difficulty(mastery: float) -> str:
     if mastery < 0.7:
         return "medium"
     return "hard"
-
-
-def _copy_old_progress(cur) -> None:
-    """Copy counts from darsai_math_progress (per chat, before mastery existed) into darsai_mastery once.
-
-    Mastery is estimated as if every old answer was a medium question. Students who already have
-    mastery rows are left alone, so running this at every startup changes nothing after the first time.
-    """
-    cur.execute("SELECT to_regclass('darsai_math_progress') IS NOT NULL")
-    if not cur.fetchone()[0]:
-        return
-    cur.execute("""
-        INSERT INTO darsai_mastery (user_id, level, topic, mastery, correct_count, wrong_count)
-        SELECT user_id, level, topic,
-               CASE WHEN SUM(correct_count + wrong_count) = 0 THEN 0
-                    ELSE 0.85 * SUM(correct_count)::float / SUM(correct_count + wrong_count)
-                         * (1 - power(0.7::float, LEAST(SUM(correct_count + wrong_count), 50)::float))
-               END,
-               SUM(correct_count), SUM(wrong_count)
-        FROM darsai_math_progress
-        GROUP BY user_id, level, topic
-        ON CONFLICT (user_id, level, topic) DO NOTHING;
-    """)
 
 
 def record_answer(user_id: int, level: str, topic: str, difficulty: str, outcome: str) -> Tuple[float, float]:

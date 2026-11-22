@@ -9,13 +9,14 @@ created with `initdb -E UTF8 --locale=C` (the tests refuse a server that isn't U
 """
 
 import os
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from urllib.parse import urlparse
 
 import main
-from modules import activity, ai, db, input_mode, notify, premium, stats, student
+from modules import activity, ai, db, input_mode, migrations, notify, premium, stats, student
 from modules.db import connection
 from modules.i18n import t
 from modules.math import shared
@@ -24,16 +25,23 @@ from tests.test_ui import STUDENT, TelegramMocks, button_update, run, text_updat
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
 
-# What production had before the course home: every init function but the setup columns.
-OLDER_INITS = (
-    ai.init_ai_db, shared.init_math_db, student.init_student_db, input_mode.init_input_db,
-    activity.init_activity_db, premium.init_premium_db, notify.init_notify_db, activity.init_first_seen_db,
-)
 ALL_TABLES = {
     "darsai_ai_messages", "darsai_ai_usage", "darsai_student", "darsai_user_profile", "darsai_mastery",
     "darsai_active_question", "darsai_input_mode", "darsai_daily_activity", "darsai_premium_waitlist",
-    "darsai_course_notify", "darsai_first_seen",
+    "darsai_course_notify", "darsai_first_seen", "darsai_schema_version",
 }
+
+
+def older_database(first_seen: bool = True, setup_columns: bool = True) -> None:
+    """A database as a version from before migrations left it: no darsai_schema_version, and without the parts
+    added later (darsai_first_seen came with the start links, the setup columns with the course home).
+    """
+    with connection() as conn, conn.cursor() as cur:
+        migrations._baseline(cur)
+        if not setup_columns:
+            cur.execute("ALTER TABLE darsai_student DROP COLUMN setup_done, DROP COLUMN keyboard_version")
+        if not first_seen:
+            cur.execute("DROP TABLE darsai_first_seen")
 
 
 def execute(sql: str, params=()):
@@ -81,14 +89,33 @@ class PostgresTests(TelegramMocks):
     # ---------------------------------------------------------------- startup
 
     def test_startup_creates_every_table_and_can_run_again(self):
-        main.init_databases()
-        main.init_databases()
+        with self.assertLogs("modules.migrations", "INFO") as logs:
+            main.init_databases()
+        self.assertIn("Database migration 1 applied: baseline: every table as of 2026-11-22", logs.output[0])
+        self.assertIn("Database schema version 1.", logs.output[-1])
+        with self.assertLogs("modules.migrations", "INFO") as logs:
+            main.init_databases()
+        self.assertEqual(len(logs.output), 1, "nothing to apply the second time")
         self.assertEqual(self.tables(), ALL_TABLES)
         self.assertEqual(execute("SELECT COUNT(*) FROM darsai_student"), [(0,)])
+        self.assertEqual(execute("SELECT version, name FROM darsai_schema_version"), [(1, "baseline: every table as of 2026-11-22")])
+
+    def test_production_today_only_records_version_1(self):
+        older_database()  # the schema production has now, without darsai_schema_version
+        student.set_language(1, "fa")
+        student.finish_setup(1, 1)
+        student.set_language(2, "en")  # a new student in the middle of setup
+        shared.record_answer(1, "high_school", "algebra", "easy", "first_try")
+        activity.mark_active(3, source="insta")
+        before = {table: execute(f"SELECT COUNT(*) FROM {table}") for table in ALL_TABLES - {"darsai_schema_version"}}
+        main.init_databases()
+        self.assertEqual(migrations.schema_version(), 1)
+        self.assertEqual({table: execute(f"SELECT COUNT(*) FROM {table}") for table in before}, before)
+        self.assertEqual(student.get_student(2)["setup_done"], False, "still gets the setup questions")
+        self.assertEqual(student.get_student(1)["keyboard_version"], 1)
 
     def test_upgrade_marks_every_known_student_as_set_up(self):
-        for init in OLDER_INITS:
-            init()
+        older_database(setup_columns=False)  # before the course home
         activity.mark_active(1)  # seen by the tracker
         student.set_language(2, "fa")
         shared.record_answer(3, "high_school", "algebra", "easy", "first_try")  # missing from darsai_first_seen
@@ -112,15 +139,14 @@ class PostgresTests(TelegramMocks):
         self.assertFalse(student.claim_keyboard_version(2, 1))
 
     def test_first_seen_backfill_keeps_the_earliest_time(self):
-        for init in OLDER_INITS[:-1]:
-            init()
+        older_database(first_seen=False, setup_columns=False)  # before the start links
         today = activity.utc_today()
         execute("INSERT INTO darsai_ai_messages (chat_id, user_id, role, content, created_at) VALUES "
                 "(70, 70, 'user', 'hi', NOW() - INTERVAL '30 days'), (70, 70, 'user', 'again', NOW())")
         execute("INSERT INTO darsai_ai_usage (user_id, day, count) VALUES (60, %s, 2)", (today - timedelta(days=2),))
         execute("INSERT INTO darsai_daily_activity (day, user_id) VALUES (%s, 1), (%s, 1)", (today - timedelta(days=5), today))
         execute("INSERT INTO darsai_premium_waitlist (user_id, choice, source, language) VALUES (7, 'photo', 'menu', 'en')")
-        activity.init_first_seen_db()
+        main.init_databases()
         rows = {uid: (source, at) for uid, source, at in execute("SELECT user_id, source, first_seen_at FROM darsai_first_seen")}
         self.assertEqual(set(rows), {1, 7, 60, 70})
         self.assertTrue(all(source is None for source, _ in rows.values()))
@@ -135,7 +161,7 @@ class PostgresTests(TelegramMocks):
         self.assertEqual(execute("SELECT user_id, source FROM darsai_first_seen WHERE user_id IN (70, 100) ORDER BY user_id"),
                          [(70, None), (100, "insta")])
 
-    def test_old_progress_is_copied_into_mastery(self):
+    def test_old_progress_is_copied_into_mastery_once_ever(self):
         execute("""CREATE TABLE darsai_math_progress (chat_id BIGINT, user_id BIGINT, level TEXT, topic TEXT,
                    correct_count INTEGER, wrong_count INTEGER)""")
         execute("INSERT INTO darsai_math_progress VALUES (1, 5, 'high_school', 'algebra', 3, 1), (2, 5, 'high_school', 'algebra', 1, 0)")
@@ -143,6 +169,58 @@ class PostgresTests(TelegramMocks):
         (entry,) = shared.get_mastery(5).values()
         self.assertEqual((entry["correct"], entry["wrong"]), (4, 1))
         self.assertGreater(entry["mastery"], 0)
+        # The student's progress is deleted: later startups never bring it back from the old table.
+        execute("DELETE FROM darsai_mastery WHERE user_id = 5")
+        main.init_databases()
+        self.assertEqual(shared.get_mastery(5), {})
+
+    # ---------------------------------------------------------------- migrations
+
+    def test_two_instances_starting_together_apply_each_migration_once(self):
+        errors = []
+
+        def start():
+            try:
+                migrations.migrate()
+            except Exception as error:  # pragma: no cover - shown by the assertion below
+                errors.append(error)
+
+        with self.assertLogs("modules.migrations", "INFO") as logs:
+            threads = [threading.Thread(target=start) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(execute("SELECT version FROM darsai_schema_version"), [(1,)])
+        self.assertEqual(sum("migration 1 applied" in line for line in logs.output), 1)
+
+    def test_a_failed_migration_leaves_nothing_behind(self):
+        main.init_databases()
+
+        def broken(cur):
+            cur.execute("CREATE TABLE darsai_half_done (id INTEGER)")
+            raise RuntimeError("migration failed")
+
+        def fixed(cur):
+            cur.execute("CREATE TABLE darsai_half_done (id INTEGER)")
+
+        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(2, "test", broken)]):
+            with self.assertRaises(RuntimeError):
+                migrations.migrate()
+        self.assertEqual(migrations.schema_version(), 1)
+        self.assertNotIn("darsai_half_done", self.tables())
+        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(2, "test", fixed)]), \
+                patch.object(migrations, "LATEST_VERSION", 2):
+            self.assertEqual(migrations.migrate(), 2)
+        self.assertIn("darsai_half_done", self.tables())
+
+    def test_a_newer_database_is_a_warning(self):
+        main.init_databases()
+        execute("INSERT INTO darsai_schema_version (version, name) VALUES (99, 'from a newer deploy')")
+        with self.assertLogs("modules.migrations", "WARNING") as logs:
+            self.assertEqual(migrations.migrate(), 99)
+        self.assertIn("newer than this code knows (1)", logs.output[0])
 
     # ---------------------------------------------------------------- storage
 
@@ -283,3 +361,10 @@ class PostgresTests(TelegramMocks):
         setup._current.clear()
         run(setup.keyboard_notice, text_update("hello"))
         self.assertNotIn(t("en", "keyboard.notice"), [c.args[1] for c in self.send_message.call_args_list])
+
+
+class NoDatabaseTests(unittest.TestCase):
+    def test_migrations_need_a_database(self):
+        with self.assertLogs("modules.migrations", "INFO") as logs:
+            self.assertIsNone(migrations.migrate())
+        self.assertIn("kept in memory", logs.output[0])
