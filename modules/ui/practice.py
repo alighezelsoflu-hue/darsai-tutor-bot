@@ -32,6 +32,7 @@ from modules.math.shared import (
     recommended_difficulty,
     record_answer,
     save_active_question,
+    update_active_question,
 )
 from modules.math.topics import TOPIC_LEVEL, get_topic_module, topics_for_level
 
@@ -223,10 +224,15 @@ async def finish(screen: Screen, question: Dict, outcome: str, from_button: bool
     )
     first = question_text(screen, question) if from_button else screen.t(HEADLINES[outcome])
     text = f"{first}\n\n{solution_text(screen, question)}\n\n{mastery_text(screen, question, before, after)}"
+    pressed = None
     if from_button:
-        await screen.show(text, result_keyboard(screen, question))
+        pressed = await screen.show(text, result_keyboard(screen, question))
     else:
         await screen.send(text, result_keyboard(screen, question))
+    # The finished question's other messages keep no buttons (the pressed one now shows the result).
+    for message_id in question.get("message_ids", []):
+        if message_id != pressed:
+            await screen.remove_buttons(message_id)
 
 
 async def show_solution(screen: Screen, question_id: str) -> None:
@@ -265,7 +271,8 @@ async def handle_answer(screen: Screen, question: Dict, text: str) -> None:
     if not readable_answer(text):
         # Not an attempt: the student gets told how to write an answer and keeps both tries.
         hint = screen.t("practice.unreadable") + "\n" + formulas(screen, [answer_example(question)])
-        await screen.send(hint, solution_keyboard(screen, question))
+        sent = await screen.send(hint, solution_keyboard(screen, question))
+        await remember_message(screen, question, sent.message_id)
         return
     if answers_match(question["answer"], text):
         await finish(screen, question, "second_try" if question.get("attempts") else "first_try")
@@ -279,8 +286,19 @@ async def handle_answer(screen: Screen, question: Dict, text: str) -> None:
     if expected > 1 and answer_count(text) != expected:
         lines.append(two_answers_hint(screen))
     sent = await screen.send("\n".join(lines), solution_keyboard(screen, question))
-    question.setdefault("message_ids", []).append(sent.message_id)
-    await asyncio.to_thread(save_active_question, screen.chat_id, screen.user_id, question)
+    await remember_message(screen, question, sent.message_id)
+
+
+async def remember_message(screen: Screen, question: Dict, message_id: int) -> None:
+    """Save the question with one more message that belongs to it (and the try just counted).
+
+    In groups, replies to that message count as answers, and its buttons go when the question is finished.
+    """
+    question.setdefault("message_ids", []).append(message_id)
+    saved = await asyncio.to_thread(update_active_question, screen.chat_id, screen.user_id, question)
+    if not saved:
+        # Show solution or another answer finished it a moment ago: this message's button is stale already.
+        await screen.remove_buttons(message_id)
 
 
 async def group_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

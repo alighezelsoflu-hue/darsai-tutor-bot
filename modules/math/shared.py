@@ -240,7 +240,10 @@ def progress_report(user_id: int) -> str:
 
 
 def save_active_question(chat_id: int, user_id: int, question: Dict[str, object]) -> None:
-    """Remember the practice question a student is working on in this chat."""
+    """Make this the practice question the student is working on in this chat, replacing any other.
+
+    To change the question the student already has (e.g. count a try), use update_active_question.
+    """
     if db_configured():
         with connection() as conn, conn.cursor() as cur:
             cur.execute("""
@@ -251,7 +254,29 @@ def save_active_question(chat_id: int, user_id: int, question: Dict[str, object]
             """, (chat_id, user_id, json.dumps(question)))
         return
     # A JSON round trip, like the JSONB column: the caller's dict and the stored one never share lists.
-    ACTIVE_QUESTION_FALLBACK[(chat_id, user_id)] = json.loads(json.dumps(question))
+    with _FALLBACK_LOCK:
+        ACTIVE_QUESTION_FALLBACK[(chat_id, user_id)] = json.loads(json.dumps(question))
+
+
+def update_active_question(chat_id: int, user_id: int, question: Dict[str, object]) -> bool:
+    """Save changes to the active question, but only while it is still the same question (same id).
+
+    Returns False when the question was finished or replaced in the meantime. So a question that
+    Show solution or another answer just finished can never come back and be counted twice.
+    """
+    if db_configured():
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute("""
+                UPDATE darsai_active_question SET question=%s::jsonb
+                WHERE chat_id=%s AND user_id=%s AND question->>'id'=%s
+            """, (json.dumps(question), chat_id, user_id, str(question["id"])))
+            return cur.rowcount > 0
+    with _FALLBACK_LOCK:
+        stored = ACTIVE_QUESTION_FALLBACK.get((chat_id, user_id))
+        if stored is None or stored.get("id") != question["id"]:
+            return False
+        ACTIVE_QUESTION_FALLBACK[(chat_id, user_id)] = json.loads(json.dumps(question))
+        return True
 
 
 def get_active_question(chat_id: int, user_id: int) -> Optional[Dict[str, object]]:
@@ -265,8 +290,9 @@ def get_active_question(chat_id: int, user_id: int) -> Optional[Dict[str, object
         if not row:
             return None
         return json.loads(row[0]) if isinstance(row[0], str) else row[0]
-    question = ACTIVE_QUESTION_FALLBACK.get((chat_id, user_id))
-    return json.loads(json.dumps(question)) if question else None
+    with _FALLBACK_LOCK:
+        question = ACTIVE_QUESTION_FALLBACK.get((chat_id, user_id))
+        return json.loads(json.dumps(question)) if question else None
 
 
 def clear_active_question(chat_id: int, user_id: int, question_id: Optional[str] = None) -> bool:

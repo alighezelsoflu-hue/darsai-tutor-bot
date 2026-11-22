@@ -73,6 +73,7 @@ class TelegramMocks(unittest.TestCase):
         self.edit_text = self._patch(CallbackQuery, "edit_message_text")
         self.edit_markup = self._patch(CallbackQuery, "edit_message_reply_markup")
         self.send_message = self._patch(ExtBot, "send_message", SimpleNamespace(message_id=78))
+        self.bot_edit_markup = self._patch(ExtBot, "edit_message_reply_markup")
 
     def _patch(self, owner, name, returns=None):
         mock = AsyncMock(return_value=returns)
@@ -252,10 +253,10 @@ class PracticeTests(TelegramMocks):
         self.press(f"d1:{STUDENT}:prac")
         text = self.edit_text.call_args.args[0]
         self.assertIn("Practice · High School", text)
-        self.assertIn("Algebra: ▰▰▱▱▱▱▱▱▱▱ 18%", text)
+        self.assertIn("Equations with brackets: ▰▰▱▱▱▱▱▱▱▱ 18%", text)
         self.assertIn("Quadratic equations: not started yet", text)
         routes = self.routes(self.markup(self.edit_text.call_args))
-        self.assertEqual(routes["Algebra"], "prac:n:algebra")
+        self.assertEqual(routes["Equations with brackets"], "prac:n:algebra")
         self.assertEqual(routes["🏠 Menu"], "home")
 
     def test_a_topic_opens_an_easy_question_in_the_same_message(self):
@@ -280,13 +281,56 @@ class PracticeTests(TelegramMocks):
         self.assertTrue(text.startswith("✅ Correct!"))
         self.assertIn("How to solve it", text)
         self.assertIn(q["steps"][-1][2], text)
-        self.assertIn("Algebra: ▰▰▱▱▱▱▱▱▱▱ 18% (↑18)", text)
+        self.assertIn("Equations with brackets: ▰▰▱▱▱▱▱▱▱▱ 18% (↑18)", text)
         self.assertIsNone(self.question())
         self.assertEqual(get_mastery(STUDENT)[("high_school", "algebra")]["correct"], 1)
         routes = self.routes(markup)
         self.assertEqual(routes["➡️ Next question"], "prac:n:algebra:a")
         self.assertEqual(routes["🔼 Harder"], "prac:n:algebra:m")
         self.assertNotIn("🔽 Easier", routes)
+
+    def buttons_removed_from(self):
+        return [call.kwargs["message_id"] for call in self.bot_edit_markup.call_args_list]
+
+    def test_typed_answer_removes_the_question_buttons(self):
+        self.press(f"d1:{STUDENT}:prac:n:algebra")
+        q = self.question()
+        self.type("I don't know")  # hint message 77
+        self.type(self.wrong_answer(q))  # retry message 77 again (the mock always returns 77)
+        self.assertEqual(self.question()["message_ids"], [5, 77, 77])
+        self.bot_edit_markup.assert_not_called()
+        self.type(q["answer"])
+        self.assertEqual(self.buttons_removed_from(), [5, 77, 77])
+        self.assertTrue(all(call.kwargs["reply_markup"] is None for call in self.bot_edit_markup.call_args_list))
+
+    def test_show_solution_on_the_retry_message_removes_the_question_buttons(self):
+        self.press(f"d1:{STUDENT}:prac:n:algebra")
+        q = self.question()
+        shared.ACTIVE_QUESTION_FALLBACK[(STUDENT, STUDENT)]["message_ids"] = [3]  # the question was message 3
+        self.type(self.wrong_answer(q))  # retry message 77
+        run(router.callback_router, button_update(f"d1:{STUDENT}:prac:s:{q['id']}"))  # pressed on message 5
+        self.assertEqual(self.buttons_removed_from(), [3, 77])
+
+    def test_a_finished_question_never_comes_back(self):
+        # The student types a first wrong answer while Show solution finishes the question.
+        self.press(f"d1:{STUDENT}:prac:n:algebra")
+        stale = self.question()
+        self.press(f"d1:{STUDENT}:prac:s:{stale['id']}")
+        screen = asyncio.run(core.Screen.load(text_update("1000"), SimpleNamespace(bot=BOT)))
+        asyncio.run(practice.handle_answer(screen, stale, self.wrong_answer(stale)))
+        self.assertIsNone(self.question())
+        self.assertIn(77, self.buttons_removed_from(), "the stale retry message loses its button")
+        asyncio.run(practice.handle_answer(screen, dict(stale, attempts=1), self.wrong_answer(stale)))
+        self.assertEqual(get_mastery(STUDENT)[("high_school", "algebra")]["wrong"], 1, "counted once")
+
+    def test_a_replaced_question_is_not_overwritten(self):
+        self.press(f"d1:{STUDENT}:prac:n:algebra")
+        stale = self.question()
+        self.press(f"d1:{STUDENT}:prac:n:algebra")  # Skip: a new question
+        new = self.question()
+        screen = asyncio.run(core.Screen.load(text_update("1000"), SimpleNamespace(bot=BOT)))
+        asyncio.run(practice.handle_answer(screen, stale, self.wrong_answer(stale)))
+        self.assertEqual(self.question(), new)
 
     def test_one_more_try_then_the_solution(self):
         self.press(f"d1:{STUDENT}:prac:n:algebra")
@@ -408,7 +452,7 @@ class PracticeTests(TelegramMocks):
         self.press(f"d1:{STUDENT}:prac:n:algebra", chat_type="supergroup")
         run(practice.group_reply, text_update(self.question(self.GROUP)["answer"], chat_type="supergroup", reply_to=5))
         self.press(f"d1:{STUDENT}:prac")
-        self.assertIn("Algebra: ▰▰▱▱▱▱▱▱▱▱ 18%", self.edit_text.call_args.args[0])
+        self.assertIn("Equations with brackets: ▰▰▱▱▱▱▱▱▱▱ 18%", self.edit_text.call_args.args[0])
 
     def test_persian_formulas_sit_on_their_own_left_to_right_lines(self):
         student.set_language(STUDENT, "fa")

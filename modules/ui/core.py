@@ -20,7 +20,7 @@ from telegram import (
     Update,
 )
 from telegram.constants import ChatType
-from telegram.error import BadRequest
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
 from modules.i18n import UI_LANGUAGES, detect_language, is_rtl, t
@@ -112,6 +112,14 @@ class Screen:
         if self.query is None and self.update.effective_message is not None:
             return await self.update.effective_message.reply_text(text, reply_markup=markup)
         return await self.context.bot.send_message(self.chat_id, text, reply_markup=markup)
+
+    async def remove_buttons(self, message_id: int) -> None:
+        """Take the inline buttons off one of the bot's messages in this chat. A failure is only logged."""
+        try:
+            await self.context.bot.edit_message_reply_markup(chat_id=self.chat_id, message_id=message_id, reply_markup=None)
+        except TelegramError as error:
+            # E.g. the message was deleted or already has no buttons. The buttons would only show a pop-up.
+            logger.info("Could not remove buttons from message %s: %s", message_id, error)
 
     async def show(self, text: str, markup: Optional[InlineKeyboardMarkup] = None) -> int:
         """Replace the message whose button was pressed. Send a new message when it can't be edited.

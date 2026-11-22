@@ -36,7 +36,7 @@ STRINGS = {
     "btn.show_solution": "💡 راه‌حل رو نشونم بده",
     "btn.skip": "⏭ یه سؤال دیگه",
     "btn.next": "⬅️ سؤال بعدی",
-    "btn.easier": "🔽 آسون‌تر",
+    "btn.easier": "🔽 آسان‌تر",
     "btn.harder": "🔼 سخت‌تر",
     "btn.topics": "📚 موضوع‌ها",
 
@@ -49,11 +49,11 @@ STRINGS = {
 
     # Practice topics and difficulty
     "topic.linear_equations": "معادله‌ی درجه اول",
-    "topic.algebra": "جبر",
+    "topic.algebra": "معادله‌ی پرانتزدار",
     "topic.quadratics": "معادله‌ی درجه دوم",
     "topic.precalculus": "تابع",
     "topic.calculus": "مشتق",
-    "difficulty.easy": "🟢 آسون",
+    "difficulty.easy": "🟢 آسان",
     "difficulty.medium": "🟡 متوسط",
     "difficulty.hard": "🔴 سخت",
 

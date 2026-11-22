@@ -43,7 +43,7 @@ STRINGS = {
 
     # Practice topics and difficulty
     "topic.linear_equations": "Linear equations",
-    "topic.algebra": "Algebra",
+    "topic.algebra": "Equations with brackets",
     "topic.quadratics": "Quadratic equations",
     "topic.precalculus": "Functions",
     "topic.calculus": "Derivatives",
