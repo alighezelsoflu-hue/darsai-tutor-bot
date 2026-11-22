@@ -21,7 +21,7 @@ from modules.premium import init_premium_db
 from modules.stats import register_stats_handlers
 from modules.student import init_setup_db, init_student_db
 from modules.ui.core import Screen
-from modules.ui.home import home_keyboard
+from modules.ui.home import home_view
 from modules.ui.router import register_fallback_handlers, register_ui_handlers
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
@@ -69,8 +69,8 @@ def help_text() -> str:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_user or not update.effective_chat:
         return
-    screen = await Screen.load(update, context)
-    await update.message.reply_text(help_text(), reply_markup=home_keyboard(screen))
+    _, markup = await home_view(await Screen.load(update, context))
+    await update.message.reply_text(help_text(), reply_markup=markup)
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -29,7 +29,7 @@ STRINGS = {
     "soon.ai": "🤖 The AI course is coming soon\nFour tracks, from 12–14-year-olds to university students: what AI is, how machines learn, how chatbots work and how to use AI honestly for study.",
     "soon.astronomy": "🔭 Astronomy is coming soon\nTonight's sky for your city, and lessons and quizzes about the Moon, the planets and the stars.",
     "soon.chemistry": "🧪 Chemistry is coming soon\nLessons, practice with formulas and reactions, molar mass and a Konkur section.",
-    "soon.astrology": "✨ Astrology is coming soon\nThe story of the zodiac from Babylon to al-Biruni, why the signs no longer match the sky, and ✨ Your birth sky: where the planets really were on your birthday.",
+    "soon.biology": "🧬 Biology is coming soon\nLessons and practice for your grade, from cells and genetics to the human body and ecology, and a Konkur section.",
     "soon.konkur": "🎯 Konkur is coming soon\nMini mock tests with 4 choices and negative marking, chapter-by-chapter tests, your weak spots and a study plan.",
     "soon.ask": "Want to know when it's ready?",
     "soon.saved": "✅ I'll tell you when it's ready.",

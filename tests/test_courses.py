@@ -49,10 +49,17 @@ class CourseListTests(TelegramMocks):
         self.assertNotIn("\n9.", prompt)
         self.assertIn("\n9. Write every formula on its own line", math_tutor_prompt("high_school", "math", "Persian/Farsi"))
 
-    def test_astrology_is_taught_as_history_without_predictions(self):
-        prompt = courses.tutor_prompt("astrology", "university", "general", "English")
-        self.assertIn("history and culture", prompt)
-        self.assertIn("Never make predictions", prompt)
+    def test_biology_replaced_astrology(self):
+        self.assertNotIn("astrology", courses.COURSES)
+        biology = courses.COURSES["biology"]
+        self.assertEqual((biology.emoji, biology.names, biology.kind, biology.live), ("🧬", {"en": "Biology", "fa": "زیست\u200cشناسی"}, courses.SUBJECT, False))
+        prompt = courses.tutor_prompt("biology", "high_school", "cells", "English")
+        self.assertIn("You are DarsAI, a specialized biology tutor for students.", prompt)
+        self.assertIn("Connect structure to function.", prompt)
+        for lang in UI_LANGUAGES:
+            self.assertNotIn("soon.astrology", STRINGS[lang])
+        # School subjects first, then the path courses.
+        self.assertEqual(courses.GRID, ("math", "physics", "chemistry", "biology", "ai", "astronomy"))
 
 
 class ScreenTests(TelegramMocks):
@@ -72,15 +79,15 @@ class HomeTests(ScreenTests):
         self.assertEqual(labels(markup), [
             ["▶️ Start: Equations with brackets"],
             ["📐 Math", "⚛️ Physics 🔜"],
+            ["🧪 Chemistry 🔜", "🧬 Biology 🔜"],
             ["🤖 AI course 🔜", "🔭 Astronomy 🔜"],
-            ["🧪 Chemistry 🔜", "✨ Astrology 🔜"],
             ["🎯 Konkur 🔜"],
             ["📊 Progress", "💎 Premium", "⚙️ Settings"],
         ])
         routes = math_routes(self.buttons(markup))
         self.assertEqual(routes["▶️ Start: Equations with brackets"], "cont")
         self.assertEqual(routes["📐 Math"], "c:math")
-        self.assertEqual(routes["✨ Astrology 🔜"], "c:astrology")
+        self.assertEqual(routes["🧬 Biology 🔜"], "c:biology")
         self.assertEqual(routes["🎯 Konkur 🔜"], "c:konkur")
 
     def test_persian_home(self):
@@ -93,7 +100,7 @@ class HomeTests(ScreenTests):
         self.assertEqual(rows[0], ["▶️ شروع: معادله‌ی درجه اول"])
         # Mirrored: the first of each row sits on the right.
         self.assertEqual(rows[1], ["⚛️ فیزیک 🔜", "📐 ریاضی"])
-        self.assertEqual(rows[3], ["✨ طالع‌بینی 🔜", "🧪 شیمی 🔜"])
+        self.assertEqual(rows[2], ["🧬 زیست‌شناسی 🔜", "🧪 شیمی 🔜"])
         self.assertEqual(rows[4], ["🎯 کنکور 🔜"])
 
     def test_after_practising_home_offers_to_continue(self):
@@ -213,15 +220,24 @@ class ComingSoonTests(ScreenTests):
         for course, start in (
             ("ai", "🤖 دوره‌ی هوش مصنوعی به‌زودی میاد\nچهار مسیر، از نوجوون‌های ۱۲ تا ۱۴ ساله تا دانشجوها:"),
             ("konkur", "🎯 کنکور به‌زودی میاد\nآزمون آزمایشی کوتاه چهارگزینه‌ای"),
-            ("astrology", "✨ طالع‌بینی به‌زودی میاد\n"),
+            ("biology", "🧬 زیست‌شناسی به‌زودی میاد\nدرس و تمرین برای پایه‌ی خودت، از سلول و ژنتیک"),
         ):
             self.press(f"d1:{STUDENT}:c:{course}")
             text, markup = self.shown()
             self.assertTrue(text.startswith(start), text)
             self.assertTrue(text.endswith("\n\nمی‌خوای وقتی آماده شد خبرت کنم؟"))
         self.assertEqual(labels(markup), [["🔔 خبرم کن"], ["🏠 منو"]])
-        self.press(f"d1:{STUDENT}:c:astrology:n")
-        self.assertEqual(notify._FALLBACK[(STUDENT, "astrology")]["language"], "fa")
+        self.press(f"d1:{STUDENT}:c:biology:n")
+        self.assertEqual(notify._FALLBACK[(STUDENT, "biology")]["language"], "fa")
+
+    def test_astrology_buttons_in_old_messages_have_expired(self):
+        for route in ("c:astrology", "c:astrology:n", "su:c:astrology"):
+            self.answer.reset_mock()
+            self.press(f"d1:{STUDENT}:{route}")
+            self.assertIn("expired", self.answer.call_args.args[0], route)
+        self.edit_text.assert_not_called()
+        with self.assertRaises(ValueError):
+            notify.add_notice(STUDENT, "astrology", "en")
 
     def test_a_live_course_is_not_a_notify_choice(self):
         with self.assertRaises(ValueError):
@@ -232,12 +248,17 @@ class ComingSoonTests(ScreenTests):
         notify.add_notice(1, "ai", "fa")
         notify.add_notice(2, "physics", "en")
         notify.add_notice(99, "physics", "en")  # an admin
+        # Picks for Astrology from before Biology replaced it stay in storage, but aren't counted.
+        notify._FALLBACK[(1, "astrology")] = {"language": "en", "created_at": 0}
+        notify._FALLBACK[(3, "astrology")] = {"language": "fa", "created_at": 0}
         summary = notify.notice_summary(exclude={99})
         self.assertEqual(summary["students"], 2)
-        self.assertEqual(summary["courses"], {"physics": 2, "ai": 1, "astronomy": 0, "chemistry": 0, "astrology": 0, "konkur": 0})
+        self.assertEqual(summary["courses"], {"physics": 2, "chemistry": 0, "biology": 0, "ai": 1, "astronomy": 0, "konkur": 0})
         text = stats.format_stats(stats.collect_stats(date(2026, 11, 22), admins={99}))
-        self.assertIn("🔔 Notify me (coming-soon courses): 2 students\n⚛️ Physics: 2\n🤖 AI course: 1\n🔭 Astronomy: 0", text)
-        self.assertIn("✨ Astrology: 0\n🎯 Konkur: 0", text)
+        self.assertIn(
+            "🔔 Notify me (coming-soon courses): 2 students\n⚛️ Physics: 2\n🧪 Chemistry: 0\n🧬 Biology: 0\n"
+            "🤖 AI course: 1\n🔭 Astronomy: 0\n🎯 Konkur: 0", text)
+        self.assertNotIn("Astrology", text)
 
 
 class ContinueTests(ScreenTests):

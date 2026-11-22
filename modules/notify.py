@@ -60,25 +60,27 @@ def add_notice(user_id: int, course: str, language: str) -> None:
 def notice_summary(exclude: Iterable[int] = ()) -> Dict:
     """{"students": n, "courses": {course: students}} for /stats, every coming-soon course in course order.
 
-    Students in exclude (admins) are left out.
+    Students in exclude (admins) are left out, and so are rows for courses no longer in the course list
+    (they are kept in the table: Astrology's, from before Biology replaced it).
     """
     exclude = sorted(set(exclude))
+    current = list(COMING_SOON)
     if db_configured():
-        params = {"exclude": exclude}
+        params = {"exclude": exclude, "courses": current}
         with connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT course, COUNT(*) FROM darsai_course_notify
-                WHERE user_id <> ALL(%(exclude)s::bigint[]) GROUP BY course
+                WHERE user_id <> ALL(%(exclude)s::bigint[]) AND course = ANY(%(courses)s::text[]) GROUP BY course
             """, params)
             courses = dict(cur.fetchall())
-            cur.execute(
-                "SELECT COUNT(DISTINCT user_id) FROM darsai_course_notify WHERE user_id <> ALL(%(exclude)s::bigint[])",
-                params,
-            )
+            cur.execute("""
+                SELECT COUNT(DISTINCT user_id) FROM darsai_course_notify
+                WHERE user_id <> ALL(%(exclude)s::bigint[]) AND course = ANY(%(courses)s::text[])
+            """, params)
             students = cur.fetchone()[0]
     else:
         with _LOCK:
-            keys = [(uid, course) for (uid, course) in _FALLBACK if uid not in exclude]
+            keys = [(uid, course) for (uid, course) in _FALLBACK if uid not in exclude and course in current]
         courses = {}
         for _, course in keys:
             courses[course] = courses.get(course, 0) + 1

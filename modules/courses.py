@@ -59,7 +59,8 @@ class Course:
         return f"{self.emoji} {self.name(lang)}" + ("" if self.live else " 🔜")
 
 
-# The order here is the order of the course buttons. EXAM courses get a row of their own after the others.
+# The order here is the order of the course buttons: school subjects first, then the path courses. EXAM courses
+# get a row of their own after the others.
 COURSES: Dict[str, Course] = {course.id: course for course in (
     Course(
         id="math", emoji="📐", names={"en": "Math", "fa": "ریاضی"}, kind=SUBJECT, live=True,
@@ -76,6 +77,31 @@ COURSES: Dict[str, Course] = {course.id: course for course in (
             "Write the formula, say what each symbol means, then substitute with units.",
             "Check that the units of the result make sense.",
             "Diagnose likely mistakes kindly.",
+            "Give one small similar example or ask one check question at the end.",
+        ),
+    ),
+    Course(
+        id="chemistry", emoji="🧪", names={"en": "Chemistry", "fa": "شیمی"}, kind=SUBJECT, live=False, hub=(),
+        tutor="a specialized chemistry tutor for students",
+        rules=(
+            "Do not just give the final answer. Teach step by step.",
+            "Start with what happens to the atoms and molecules, in simple language.",
+            "Balance every reaction and check it.",
+            "Show molar mass and unit calculations clearly.",
+            "Diagnose likely mistakes kindly.",
+            "Give one small similar example or ask one check question at the end.",
+        ),
+    ),
+    Course(
+        id="biology", emoji="🧬", names={"en": "Biology", "fa": "زیست‌شناسی"}, kind=SUBJECT, live=False, hub=(),
+        tutor="a specialized biology tutor for students",
+        rules=(
+            "Do not just give the final answer. Teach step by step.",
+            "Start with the big picture in simple language, then the details.",
+            "Explain each scientific term the first time you use it.",
+            "Describe processes as numbered steps in order.",
+            "Connect structure to function.",
+            "Diagnose common misconceptions kindly.",
             "Give one small similar example or ask one check question at the end.",
         ),
     ),
@@ -97,31 +123,6 @@ COURSES: Dict[str, Course] = {course.id: course for course in (
             "Explain with what the student can see in the sky themselves.",
             "Give sizes and distances with comparisons the student can picture.",
             "Separate what scientists know from what is still unknown.",
-            "Ask one check question at the end.",
-        ),
-    ),
-    Course(
-        id="chemistry", emoji="🧪", names={"en": "Chemistry", "fa": "شیمی"}, kind=SUBJECT, live=False, hub=(),
-        tutor="a specialized chemistry tutor for students",
-        rules=(
-            "Do not just give the final answer. Teach step by step.",
-            "Start with what happens to the atoms and molecules, in simple language.",
-            "Balance every reaction and check it.",
-            "Show molar mass and unit calculations clearly.",
-            "Diagnose likely mistakes kindly.",
-            "Give one small similar example or ask one check question at the end.",
-        ),
-    ),
-    Course(
-        id="astrology", emoji="✨", names={"en": "Astrology", "fa": "طالع‌بینی"}, kind=PATH, live=False, hub=(),
-        tutor="a teacher of the history and culture of astrology",
-        rules=(
-            "Teach astrology as history and culture: where the zodiac came from, from Babylon to al-Biruni, and how "
-            "it shaped astronomy.",
-            "Never make predictions or personality readings, and never say the stars decide anything about a person.",
-            "Say clearly, without mocking anyone, that astrology has no scientific support, and explain why the signs "
-            "no longer match the sky (precession).",
-            "Use real astronomy for where the planets actually were.",
             "Ask one check question at the end.",
         ),
     ),
