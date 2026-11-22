@@ -1,9 +1,10 @@
 """/stats for admins (ADMIN_USER_IDS), and the tracker that notes which students use the bot each day.
 
-Where the numbers come from (days are UTC, like the daily tutor limit):
+Where the numbers come from (days are UTC, like the daily tutor limit). Admins are left out of all of them.
 - Active students: darsai_daily_activity (anyone who sent the bot a message or pressed its buttons), plus
   students who used the tutor (darsai_ai_usage) or practised (darsai_mastery) before that table existed.
   All time counts everyone the bot has any record of.
+- New students and their start link: darsai_first_seen.
 - Practice answers: per day from darsai_daily_activity, all time from darsai_mastery.
 - Tutor messages and students who hit the daily limit: darsai_ai_usage.
 - The Premium waitlist: darsai_premium_waitlist.
@@ -14,7 +15,7 @@ Where the numbers come from (days are UTC, like the daily tutor limit):
 import asyncio
 import logging
 from datetime import date, timedelta
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from telegram import Update
 from telegram.constants import ChatType
@@ -29,6 +30,8 @@ from modules.math import shared
 logger = logging.getLogger(__name__)
 
 WEEK_DAYS = 7
+# /stats lists the start links with the most new students; the rest are added up in one line.
+MAX_SOURCES = 15
 
 
 # ------------------------------------------------------------
@@ -56,6 +59,17 @@ def counts_as_activity(update: Update) -> bool:
     return (message.text or "").startswith("/") or message.reply_to_message is not None
 
 
+def start_link_source(update: Update) -> Optional[str]:
+    """The source of a start link (t.me/<bot>?start=<source> sends "/start <source>" in a private chat)."""
+    message = update.message
+    if message is None or message.chat.type != ChatType.PRIVATE:
+        return None
+    parts = (message.text or "").split()
+    if len(parts) != 2 or parts[0].split("@", 1)[0] != "/start":
+        return None
+    return activity.valid_source(parts[1])
+
+
 async def track_activity(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Runs before every other handler. Never stops the update, and a failure is only logged."""
     global _seen_day
@@ -67,9 +81,10 @@ async def track_activity(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
         _seen.clear()
     user_id = update.effective_user.id
     if user_id in _seen:
+        # Seen today already, so not new: a start link can't give them a source any more.
         return
     try:
-        await asyncio.to_thread(activity.mark_active, user_id, day)
+        await asyncio.to_thread(activity.mark_active, user_id, day, start_link_source(update))
     except Exception as error:
         logger.warning("Could not save today's activity: %s", error)
         return
@@ -80,32 +95,42 @@ async def track_activity(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
 # The numbers
 # ------------------------------------------------------------
 
-def collect_stats(today: date) -> Dict:
-    """Blocking. Every number /stats shows."""
+def collect_stats(today: date, admins=ADMIN_USER_IDS) -> Dict:
+    """Blocking. Every number /stats shows, without the admins in it."""
     week = today - timedelta(days=WEEK_DAYS - 1)
     limit = FREE_DAILY_AI_LIMIT
-    stats = {"today": today, "week": week, "limit": limit, "waitlist": premium.waitlist_summary()}
+    admins = sorted(set(admins))
+    stats = {
+        "today": today, "week": week, "limit": limit, "admins": len(admins),
+        "waitlist": premium.waitlist_summary(exclude=admins),
+    }
     if db_configured():
-        stats.update(_collect_from_database(today, week, limit))
+        stats.update(_collect_from_database(today, week, limit, admins))
     else:
-        stats.update(_collect_from_memory(today, week, limit))
+        stats.update(_collect_from_memory(today, week, limit, set(admins)))
     return stats
 
 
-def _collect_from_database(today: date, week: date, limit: int) -> Dict:
-    active_since = """
-        SELECT COUNT(*) FROM (
-            SELECT user_id FROM darsai_daily_activity WHERE day >= %(start)s
-            UNION SELECT user_id FROM darsai_ai_usage WHERE day >= %(start)s
-            UNION SELECT user_id FROM darsai_mastery WHERE updated_at >= (%(start)s::timestamp AT TIME ZONE 'UTC')
-        ) AS active
-    """
+# Every query leaves out the admins with this condition.
+NOT_ADMIN = "user_id <> ALL(%(admins)s::bigint[])"
+
+
+def _collect_from_database(today: date, week: date, limit: int, admins: List[int]) -> Dict:
+    params = {"today": today, "week": week, "limit": limit, "admins": admins}
     with connection() as conn, conn.cursor() as cur:
         active = {}
         for name, start in (("today", today), ("week", week)):
-            cur.execute(active_since, {"start": start})
+            cur.execute(f"""
+                SELECT COUNT(*) FROM (
+                    SELECT user_id FROM darsai_daily_activity WHERE day >= %(start)s
+                    UNION SELECT user_id FROM darsai_ai_usage WHERE day >= %(start)s
+                    UNION SELECT user_id FROM darsai_mastery
+                          WHERE updated_at >= (%(start)s::timestamp AT TIME ZONE 'UTC')
+                ) AS active
+                WHERE {NOT_ADMIN}
+            """, dict(params, start=start))
             active[name] = cur.fetchone()[0]
-        cur.execute("""
+        cur.execute(f"""
             SELECT COUNT(*) FROM (
                 SELECT user_id FROM darsai_daily_activity
                 UNION SELECT user_id FROM darsai_ai_usage
@@ -114,31 +139,44 @@ def _collect_from_database(today: date, week: date, limit: int) -> Dict:
                 UNION SELECT user_id FROM darsai_user_profile
                 UNION SELECT user_id FROM darsai_ai_messages
                 UNION SELECT user_id FROM darsai_premium_waitlist
+                UNION SELECT user_id FROM darsai_first_seen
             ) AS everyone
-        """)
+            WHERE {NOT_ADMIN}
+        """, params)
         active["total"] = cur.fetchone()[0]
 
-        cur.execute("""
-            SELECT COALESCE(SUM(practice_answers) FILTER (WHERE day = %(today)s), 0),
-                   COALESCE(SUM(practice_answers) FILTER (WHERE day >= %(week)s), 0),
+        cur.execute(f"""
+            SELECT source,
+                   COUNT(*) FILTER (WHERE first_seen_at >= (%(today)s::timestamp AT TIME ZONE 'UTC')),
+                   COUNT(*) FILTER (WHERE first_seen_at >= (%(week)s::timestamp AT TIME ZONE 'UTC')),
+                   COUNT(*)
+            FROM darsai_first_seen WHERE {NOT_ADMIN}
+            GROUP BY source
+        """, params)
+        sources = {source: (n_today, n_week, n_total) for source, n_today, n_week, n_total in cur.fetchall()}
+
+        cur.execute(f"""
+            SELECT COALESCE(SUM(practice_answers) FILTER (WHERE day = %(today)s AND {NOT_ADMIN}), 0),
+                   COALESCE(SUM(practice_answers) FILTER (WHERE day >= %(week)s AND {NOT_ADMIN}), 0),
                    MIN(day)
             FROM darsai_daily_activity
-        """, {"today": today, "week": week})
+        """, params)
         practice_today, practice_week, counting_since = cur.fetchone()
-        cur.execute("SELECT COALESCE(SUM(correct_count + wrong_count), 0) FROM darsai_mastery")
+        cur.execute(f"SELECT COALESCE(SUM(correct_count + wrong_count), 0) FROM darsai_mastery WHERE {NOT_ADMIN}", params)
         practice_total = cur.fetchone()[0]
 
-        cur.execute("""
+        cur.execute(f"""
             SELECT COALESCE(SUM(count) FILTER (WHERE day = %(today)s), 0),
                    COALESCE(SUM(count) FILTER (WHERE day >= %(week)s), 0),
                    COALESCE(SUM(count), 0),
                    COUNT(*) FILTER (WHERE day = %(today)s AND %(limit)s > 0 AND count >= %(limit)s)
-            FROM darsai_ai_usage
-        """, {"today": today, "week": week, "limit": limit})
+            FROM darsai_ai_usage WHERE {NOT_ADMIN}
+        """, params)
         tutor_today, tutor_week, tutor_total, limit_hits = cur.fetchone()
 
     return {
         "active": active,
+        "new": _new_students(sources),
         "practice": {"today": practice_today, "week": practice_week, "total": practice_total},
         "tutor": {"today": tutor_today, "week": tutor_week, "total": tutor_total},
         "limit_hits": limit_hits,
@@ -146,11 +184,12 @@ def _collect_from_database(today: date, week: date, limit: int) -> Dict:
     }
 
 
-def _collect_from_memory(today: date, week: date, limit: int) -> Dict:
+def _collect_from_memory(today: date, week: date, limit: int, admins: Set[int]) -> Dict:
     """The same numbers from the in-memory fallbacks (local testing without a database)."""
-    days = dict(activity._FALLBACK)
-    usage = dict(ai._USAGE_FALLBACK)  # only today: older days are dropped from memory
-    mastery = dict(shared.MASTERY_FALLBACK)
+    days = {key: row for key, row in activity._FALLBACK.items() if key[1] not in admins}
+    usage = {key: count for key, count in ai._USAGE_FALLBACK.items() if key[0] not in admins}  # only today
+    mastery = {key: entry for key, entry in shared.MASTERY_FALLBACK.items() if key[0] not in admins}
+    first_seen = {uid: dict(row) for uid, row in activity._FIRST_SEEN.items() if uid not in admins}
 
     def active_since(start: date) -> int:
         users = {uid for (day, uid) in days if day >= start} | {uid for (uid, day) in usage if day >= start}
@@ -159,9 +198,16 @@ def _collect_from_memory(today: date, week: date, limit: int) -> Dict:
     everyone = (
         {uid for (_, uid) in days} | {uid for (uid, _) in usage} | {uid for (uid, _, _) in mastery}
         | set(student._FALLBACK) | {uid for (_, uid, _) in ai._MEMORY_FALLBACK} | {uid for (uid, _) in premium._FALLBACK}
-    )
+        | set(first_seen)
+    ) - admins
+    sources: Dict[Optional[str], Tuple[int, int, int]] = {}
+    for row in first_seen.values():
+        seen_day = row["at"].date()
+        n_today, n_week, n_total = sources.get(row["source"], (0, 0, 0))
+        sources[row["source"]] = (n_today + (seen_day >= today), n_week + (seen_day >= week), n_total + 1)
     return {
         "active": {"today": active_since(today), "week": active_since(week), "total": len(everyone)},
+        "new": _new_students(sources),
         "practice": {
             "today": sum(row["practice_answers"] for (day, _), row in days.items() if day == today),
             "week": sum(row["practice_answers"] for (day, _), row in days.items() if day >= week),
@@ -173,7 +219,20 @@ def _collect_from_memory(today: date, week: date, limit: int) -> Dict:
             "total": sum(usage.values()),
         },
         "limit_hits": sum(1 for (_, day), count in usage.items() if day == today and 0 < limit <= count),
-        "counting_since": min((day for (day, _) in days), default=None),
+        "counting_since": min((day for (day, _) in activity._FALLBACK), default=None),
+    }
+
+
+def _new_students(sources: Dict[Optional[str], Tuple[int, int, int]]) -> Dict:
+    """{"today", "week", "total", "sources": [(source, today, week, total)], "no_link": (…)}, links by size."""
+    totals = [sum(numbers[i] for numbers in sources.values()) for i in range(3)]
+    links = sorted(
+        ((source,) + numbers for source, numbers in sources.items() if source is not None),
+        key=lambda row: (-row[3], -row[2], -row[1], row[0]),
+    )
+    return {
+        "today": totals[0], "week": totals[1], "total": totals[2],
+        "sources": links, "no_link": sources.get(None, (0, 0, 0)),
     }
 
 
@@ -185,6 +244,10 @@ def format_stats(stats: Dict) -> str:
     def periods(numbers: Dict) -> str:
         return f"Today: {numbers['today']:,} · Last {WEEK_DAYS} days: {numbers['week']:,} · All time: {numbers['total']:,}"
 
+    def three(numbers) -> str:
+        return " · ".join(f"{n:,}" for n in numbers)
+
+    new = stats["new"]
     waitlist = stats["waitlist"]
     sources = waitlist["sources"]
     lines = [
@@ -192,6 +255,19 @@ def format_stats(stats: Dict) -> str:
         "",
         "👥 Active students",
         periods(stats["active"]),
+        "",
+        "🔗 New students",
+        periods(new),
+    ]
+    if new["sources"]:
+        lines.append(f"By start link (today · last {WEEK_DAYS} days · all time):")
+        lines += [f"{source}: {three(numbers)}" for source, *numbers in new["sources"][:MAX_SOURCES]]
+        rest = new["sources"][MAX_SOURCES:]
+        if rest:
+            summed = [sum(row[i] for row in rest) for i in (1, 2, 3)]
+            lines.append(f"{len(rest):,} more links: {three(summed)}")
+        lines.append(f"No link: {three(new['no_link'])}")
+    lines += [
         "",
         "✍️ Practice answers",
         periods(stats["practice"]),
@@ -213,6 +289,8 @@ def format_stats(stats: Dict) -> str:
             f"Counting by day started {since.isoformat()}. Before that, active students only include tutor "
             "and practice use, and practice answers are only in All time.",
         ]
+    if stats["admins"]:
+        lines += ["", "Admins (ADMIN_USER_IDS) are left out of every number."]
     return "\n".join(lines)
 
 
@@ -231,7 +309,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             user.id, chat.type,
         )
         return
-    stats = await asyncio.to_thread(collect_stats, activity.utc_today())
+    stats = await asyncio.to_thread(collect_stats, activity.utc_today(), ADMIN_USER_IDS)
     await message.reply_text(format_stats(stats))
 
 

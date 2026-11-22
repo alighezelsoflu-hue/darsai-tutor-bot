@@ -7,7 +7,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from telegram import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, Update
+from telegram import BotDescription, BotShortDescription, CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, Update
+from telegram.error import TimedOut
 from telegram.ext import ApplicationHandlerStop, CallbackQueryHandler, ExtBot
 
 import main
@@ -82,6 +83,7 @@ class TelegramMocks(unittest.TestCase):
         input_mode._FALLBACK.clear()
         ai._USAGE_FALLBACK.clear()
         activity._FALLBACK.clear()
+        activity._FIRST_SEEN.clear()
         premium._FALLBACK.clear()
         stats._seen.clear()
         # Sent messages get ids 77 (replies) and 78 (new messages). Edited ones keep 5.
@@ -1011,3 +1013,44 @@ class CommandMenuTests(unittest.TestCase):
             self.assertEqual([c.command for c in call.args[0]], ["start", "help"])
         persian = next(c for c in set_commands.call_args_list if c.kwargs["language_code"] == "fa")
         self.assertTrue(re.search("[؀-ۿ]", persian.args[0][0].description))
+
+    def setup_descriptions(self, current=lambda lang: "old text", error=None):
+        """Run setup_bot_descriptions with Telegram mocked. Returns the two set_* mocks."""
+        def lang(language_code):
+            return language_code or "en"
+        get_long = AsyncMock(side_effect=lambda language_code=None: BotDescription(current(lang(language_code))))
+        get_short = AsyncMock(side_effect=lambda language_code=None: BotShortDescription(current(lang(language_code))))
+        set_long, set_short = AsyncMock(side_effect=error), AsyncMock()
+        with patch.object(ExtBot, "get_my_description", get_long), patch.object(ExtBot, "get_my_short_description", get_short), \
+                patch.object(ExtBot, "set_my_description", set_long), patch.object(ExtBot, "set_my_short_description", set_short):
+            asyncio.run(main.setup_bot_descriptions())
+        return set_long, set_short
+
+    def test_descriptions_in_english_and_persian(self):
+        set_long, set_short = self.setup_descriptions()
+        self.assertEqual([c.kwargs["language_code"] for c in set_long.call_args_list], [None, "fa"])
+        self.assertEqual([c.kwargs["language_code"] for c in set_short.call_args_list], [None, "fa"])
+        english, persian = (c.args[0] for c in set_long.call_args_list)
+        self.assertTrue(english.startswith("Hi! I'm DarsAI, your math study buddy 🎓\n✍️ Practice"))
+        self.assertTrue(english.endswith("From middle school to university. Tap Start!"))
+        self.assertTrue(persian.startswith("سلام! من DarsAI هستم، دستیار ریاضیت 🎓"))
+        self.assertEqual(set_short.call_args_list[0].args[0][:14], "Math practice ")
+        self.assertIn("رایگان، به فارسی و انگلیسی", set_short.call_args_list[1].args[0])
+        for call in set_long.call_args_list:
+            self.assertLessEqual(len(call.args[0]), 512)  # Telegram's limits
+        for call in set_short.call_args_list:
+            self.assertLessEqual(len(call.args[0]), 120)
+
+    def test_descriptions_already_set_are_left_alone(self):
+        texts ={(lang, key): t(lang, key, bot="DarsAI") for lang in ("en", "fa") for key in ("bot.description", "bot.short_description")}
+        set_long, set_short = self.setup_descriptions(
+            current=lambda lang: texts[(lang, "bot.description")])
+        set_long.assert_not_called()
+        self.assertEqual(set_short.call_count, 2, "the short text differs from the long one")
+        set_long, set_short = self.setup_descriptions(
+            current=lambda lang: texts[(lang, "bot.short_description")])
+        set_short.assert_not_called()
+
+    def test_a_description_failure_does_not_stop_the_bot(self):
+        with self.assertLogs("darsai", "WARNING"):
+            self.setup_descriptions(error=TimedOut())

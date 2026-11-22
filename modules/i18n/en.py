@@ -192,4 +192,9 @@ STRINGS = {
     # Telegram's "/" command menu
     "command.start": "Open the main menu",
     "command.help": "Help and all commands",
+
+    # The bot's profile: the description shows in an empty chat before Start (at most 512 characters),
+    # the short description on the profile page and when the bot is shared (at most 120).
+    "bot.description": "Hi! I'm {bot}, your math study buddy 🎓\n✍️ Practice with instant feedback and step-by-step solutions\n🧑‍🏫 An AI tutor that explains your questions\n🧮 Equation solver and 📈 graph plotter\n📊 Track your progress in every topic\nFrom middle school to university. Tap Start!",
+    "bot.short_description": "Math practice with instant feedback, an AI tutor and step-by-step solutions. Free, in English and Persian.",
 }
