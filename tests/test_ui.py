@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 from telegram import BotDescription, BotShortDescription, CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, Update
 from telegram.error import TimedOut
-from telegram.ext import ApplicationHandlerStop, CallbackQueryHandler, ExtBot
+from telegram.ext import ApplicationHandlerStop, CallbackQueryHandler, CommandHandler, ExtBot
 
 import main
 from modules import activity, ai, courses, input_mode, notify, premium, stats, student
@@ -970,6 +970,30 @@ class ReleaseOneLeftoverTests(TelegramMocks):
         self.assertTrue(all(b.callback_data.startswith(f"d1:{STUDENT}:") for b in self.buttons(self.markup(menu))))
         run(math_commands.mathhelp_command, text_update("/mathhelp"))
         self.assertTrue(all(b.callback_data.startswith(f"d1:{STUDENT}:") for b in self.buttons(self.markup(self.reply_text.call_args))))
+
+    def test_help_shows_the_commands_with_the_home_buttons(self):
+        run(main.help_command, text_update("/help"))
+        call = self.reply_text.call_args
+        self.assertIn("DarsAI help", call.args[0])
+        self.assertTrue(all(b.callback_data.startswith(f"d1:{STUDENT}:") for b in self.buttons(self.markup(call))))
+
+    def test_every_command_runs_without_an_error(self):
+        """Each command, typed with no arguments and with arguments, in a private chat and in a group."""
+        commands = {}
+        for handlers in main.telegram_app.handlers.values():
+            for handler in handlers:
+                if isinstance(handler, CommandHandler):
+                    for command in handler.commands:
+                        commands[command] = handler.callback
+        self.assertIn("help", commands)
+        self.assertIn("start", commands)
+        with patch.object(ai, "call_ai_provider", AsyncMock(return_value="An answer.")):
+            for command, callback in sorted(commands.items()):
+                for chat_type in ("private", "supergroup"):
+                    for args in ([], ["high_school", "algebra", "2x", "+", "1", "=", "5"]):
+                        with self.subTest(command=command, chat_type=chat_type, args=args):
+                            text = " ".join([f"/{command}"] + args)
+                            run(callback, text_update(text, chat_type=chat_type), args=args)
 
     def test_messages_after_a_button_stay_in_the_forum_topic(self):
         run(router.callback_router, button_update(f"d1:{STUDENT}:home", chat_type="supergroup", photo=True, topic=12))
