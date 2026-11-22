@@ -23,7 +23,7 @@ from telegram.constants import ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes, TypeHandler
 
 from config import ADMIN_USER_IDS, ADMIN_USER_IDS_IGNORED, BOT_NAME, FREE_DAILY_AI_LIMIT
-from modules import activity, ai, notify, premium, student
+from modules import activity, ai, metrics, notify, premium, student
 from modules.admin import admin_command
 from modules.courses import COURSES
 from modules.db import connection, db_configured
@@ -300,6 +300,8 @@ def format_stats(stats: Dict) -> str:
         ]
     if stats["admins"]:
         lines += ["", "Admins (ADMIN_USER_IDS) are left out of every number."]
+    if stats.get("server"):
+        lines += ["", f"🖥 This server: {stats['server']}."]
     return "\n".join(lines)
 
 
@@ -312,6 +314,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not admin_command(update, "stats"):
         return
     stats = await asyncio.to_thread(collect_stats, activity.utc_today(), ADMIN_USER_IDS)
+    stats["server"] = metrics.describe()
     await update.effective_message.reply_text(format_stats(stats))
 
 

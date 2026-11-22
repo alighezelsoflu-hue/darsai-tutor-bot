@@ -1,3 +1,5 @@
+from modules import metrics  # first: it notes when the process started
+
 import asyncio
 import hmac
 import logging
@@ -158,6 +160,7 @@ async def lifespan(app: FastAPI):
         secret_token=WEBHOOK_SECRET_TOKEN,
     )
     logger.info("%s webhook registered.", BOT_NAME)
+    logger.info("Started in %.1f s: %s.", metrics.uptime_seconds(), metrics.describe())
     try:
         yield
     finally:

@@ -88,6 +88,7 @@ def main() -> None:
 
     from main import init_databases, setup_bot_commands, setup_bot_descriptions, telegram_app
     from modules.alerts import start_alerts, stop_alerts
+    from modules import metrics
     from modules.db import close_pool, db_configured
 
     async def post_init(app) -> None:
@@ -98,6 +99,7 @@ def main() -> None:
         await setup_bot_descriptions()
         storage = "PostgreSQL (LOCAL_DATABASE_URL)" if db_configured() else "in-memory (lost on exit)"
         logger.info("Polling as @%s. Storage: %s. Press Ctrl+C to stop.", app.bot.username, storage)
+        logger.info("Started: %s.", metrics.describe())
 
     async def post_stop(app) -> None:
         await stop_alerts()  # alerts still being sent, while the bot can still send
