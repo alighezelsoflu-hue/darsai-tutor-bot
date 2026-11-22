@@ -37,16 +37,17 @@ class PremiumTests(TelegramMocks):
         call = self.edit_text.call_args
         return call.args[0], self.markup(call)
 
-    def test_menu_has_premium_next_to_settings(self):
+    def test_menu_has_premium_between_progress_and_settings(self):
+        self.existing_student()
         run(home.start_command, text_update("/start"))
         menu = self.markup(self.reply_text.call_args)
-        self.assertEqual(routes(menu)[-2:], ["set", "prem"])
-        self.assertEqual(labels(menu)[-1], "💎 Premium")
+        self.assertEqual(routes(menu)[-3:], ["prog", "prem", "set"])
+        self.assertEqual(labels(menu)[-3:], ["📊 Progress", "💎 Premium", "⚙️ Settings"])
         student.set_language(STUDENT, "fa")
         run(home.start_command, text_update("/start"))
         last_row = self.markup(self.reply_text.call_args).inline_keyboard[-1]
-        # Mirrored for Persian: Settings on the right, Premium on the left.
-        self.assertEqual([b.text for b in last_row], ["💎 پریمیوم", "⚙️ تنظیمات"])
+        # Mirrored for Persian: Progress on the right, Settings on the left.
+        self.assertEqual([b.text for b in last_row], ["⚙️ تنظیمات", "💎 پریمیوم", "📊 پیشرفت"])
 
     def test_premium_screen_says_it_is_not_ready_and_asks(self):
         self.press(f"d1:{STUDENT}:prem")

@@ -8,15 +8,37 @@ A /command inside a sentence needs a left-to-right mark (\u200e) right before it
 
 STRINGS = {
     # Levels
-    "level.middle_school": "متوسطه اول",
-    "level.high_school": "متوسطه دوم (دهم و یازدهم)",
+    "level.middle_school": "متوسطه اول (هفتم تا نهم)",
+    "level.high_school": "دهم و یازدهم",
     "level.pre_college": "دوازدهم و کنکور",
     "level.university": "دانشگاه",
 
-    # /start and the main menu
-    "welcome": "به {bot} خوش اومدی 🎓\nفقط جواب نه، یادگیری واقعی.\nهر وقت خواستی، دکمه‌ی «🏠 منو» پایین صفحه رو بزن.",
-    "home.text": "منوی اصلی {bot} 🎓\n\nسطح: {level}\nچی کار می‌خوای بکنی؟",
+    # /start and the home screen (the course picker)
+    "welcome": "به {bot} خوش اومدی 🎓\nفقط جواب نه، یادگیری واقعی.\nپایین صفحه، «🏠 منو» صفحه‌ی اصلی رو باز می‌کنه و «▶️ ادامه» تو رو می‌بره همون‌جا که بودی.",
+    "home.text": "منوی اصلی {bot} 🎓 · {level}\n\nاز همون‌جا که بودی ادامه بده، یا یه درس انتخاب کن:",
+    "home.text_new": "منوی اصلی {bot} 🎓 · {level}\n\nیه درس انتخاب کن تا شروع کنیم:",
     "home.hint": "از منوی زیر یکی رو انتخاب کن 👇",
+    "keyboard.notice": "✨ تازه: دکمه‌ی «▶️ ادامه» پایین صفحه تو رو می‌بره همون‌جا که بودی.",
+
+    # Setup: three questions for new students (/start in a private chat)
+    "setup.language": "👋 به {bot} خوش اومدی 🎓\nفقط جواب نه، یادگیری واقعی.\n\nاول بگو با چه زبانی راحت‌تری؟",
+    "setup.level": "قدم ۲ از ۳\n🎓 الان چی می‌خونی؟\nدرس‌ها و سؤال‌ها بر اساس همین انتخاب می‌شن. هر وقت خواستی می‌تونی عوضش کنی.",
+    "setup.course": "قدم ۳ از ۳\n📚 با کدوم درس شروع کنیم؟",
+    "setup.done": "✅ همه‌چی آماده‌ست! پایین صفحه، «🏠 منو» صفحه‌ی اصلی رو باز می‌کنه و «▶️ ادامه» تو رو می‌بره همون‌جا که بودی.",
+
+    # Course hubs (the course names are in modules/courses.py)
+    "hub.mastery": "📊 تسلط {bar} {percent}٪",
+    "hub.suggested": "⭐ پیشنهاد بعدی: {topic} ({difficulty})",
+
+    # 🔜 Coming-soon screens: "soon.<course id>" for every course that isn't live
+    "soon.physics": "⚛️ فیزیک به‌زودی میاد\nدرس و تمرین برای پایه‌ی خودت، فرمول‌ها، تبدیل واحد و بخش کنکور.",
+    "soon.ai": "🤖 دوره‌ی هوش مصنوعی به‌زودی میاد\nچهار مسیر، از نوجوون‌های ۱۲ تا ۱۴ ساله تا دانشجوها: هوش مصنوعی چیه، ماشین چطوری یاد می‌گیره، چت‌بات‌ها چطوری کار می‌کنن و استفاده‌ی درست از هوش مصنوعی برای درس.",
+    "soon.astronomy": "🔭 نجوم به‌زودی میاد\nآسمان امشب برای شهر خودت، و درس و آزمونک درباره‌ی ماه، سیاره‌ها و ستاره‌ها.",
+    "soon.chemistry": "🧪 شیمی به‌زودی میاد\nدرس، تمرین با فرمول‌ها و واکنش‌ها، جرم مولی و بخش کنکور.",
+    "soon.astrology": "✨ طالع‌بینی به‌زودی میاد\nداستان برج‌های دوازده‌گانه از بابل تا ابوریحان بیرونی، اینکه چرا برج‌ها دیگه با آسمان جور نیستن، و ✨ آسمان تولد تو: سیاره‌ها روز تولدت واقعاً کجا بودن.",
+    "soon.konkur": "🎯 کنکور به‌زودی میاد\nآزمون آزمایشی کوتاه چهارگزینه‌ای با نمره‌ی منفی، تست فصل به فصل، نقطه‌ضعف‌هات و برنامه‌ی مطالعه.",
+    "soon.ask": "می‌خوای وقتی آماده شد خبرت کنم؟",
+    "soon.saved": "✅ وقتی آماده شد خبرت می‌کنم.",
 
     # Buttons
     "btn.learn": "📘 یادگیری",
@@ -24,10 +46,17 @@ STRINGS = {
     "btn.tutor": "🧑‍🏫 از معلم بپرس",
     "btn.solve": "🧮 حل معادله",
     "btn.plot": "📈 رسم نمودار",
-    "btn.progress": "📊 پیشرفت من",
+    "btn.progress": "📊 پیشرفت",
     "btn.settings": "⚙️ تنظیمات",
     "btn.premium": "💎 پریمیوم",
     "btn.menu": "🏠 منو",
+    "btn.continue": "▶️ ادامه",
+    "btn.continue_named": "▶️ ادامه: {topic}",
+    "btn.start_named": "▶️ شروع: {topic}",
+    "btn.practice_next": "▶️ تمرین: {topic}",
+    "btn.konkur_course": "🎯 کنکور {course} 🔜",
+    "btn.back_course": "🔙 {course}",
+    "btn.notify": "🔔 خبرم کن",
     "btn.back_settings": "🔙 تنظیمات",
     "btn.language": "🌐 زبان",
     "btn.level": "🎓 سطح",
@@ -63,10 +92,10 @@ STRINGS = {
     "difficulty.hard": "🔴 سخت",
 
     # Practice screens
-    "practice.topics": "✍️ تمرین · {level}\n\nیه موضوع انتخاب کن:",
+    "practice.topics": "✍️ {where}\nیه موضوع انتخاب کن:",
     "practice.topic_progress": "{topic}: {bar} {percent}٪",
     "practice.topic_new": "{topic}: هنوز شروع نکردی",
-    "practice.header": "✍️ {topic} · {difficulty}",
+    "practice.header": "✍️ {course} › {topic} · {difficulty}",
     "prompt.solve": "معادله رو حل کن:",
     "prompt.evaluate": "مقدار تابع رو حساب کن:",
     "prompt.derivative": "مشتق تابع رو پیدا کن:",
@@ -102,7 +131,8 @@ STRINGS = {
     "step.each_term": "از هر جمله جدا مشتق بگیر. مشتق عدد ثابت صفره:",
 
     # Learn
-    "learn.topics": "📘 یادگیری · {level}\n\nیه موضوع انتخاب کن:",
+    "learn.topics": "📘 {where}\nیه موضوع انتخاب کن:",
+    "learn.title": "📘 {where}",
     "learn.example": "📝 مثال:",
     "lesson.linear_equations.idea": "معادله‌ی درجه اول یه مجهول داره و بزرگ‌ترین توان مجهولش یکه. برای حلش باید مجهول رو یه طرف تنها کنی.",
     "lesson.linear_equations.rule": "قانون طلایی: هر کاری با یه طرف معادله می‌کنی، با طرف دیگه هم بکن.",
@@ -117,8 +147,7 @@ STRINGS = {
     "step.check": "برای اطمینان، جواب رو بذار توی معادله:",
 
     # Ask the tutor
-    "tutor.text": "🧑‍🏫 از معلم بپرس\n\nسؤال ریاضیت رو بنویس تا قدم‌به‌قدم برات توضیح بدم.",
-    "tutor.topic": "موضوع: {topic}",
+    "tutor.text": "🧑‍🏫 از معلم بپرس · {where}\nهر سؤال ریاضی داری بنویس تا قدم‌به‌قدم برات توضیح بدم.",
     "tutor.reply_hint": "✏️ روی همین پیام ریپلای کن و سؤالت رو بنویس.",
     "tutor.more": "✏️ سؤال دیگه‌ای داری؟ بنویس، یا «🏠 منو» رو بزن.",
     "tutor.more_group": "✏️ برای سؤال بعدی روی همین پیام ریپلای کن.",
@@ -127,7 +156,7 @@ STRINGS = {
     "ai.unavailable": "😕 معلم الان در دسترس نیست. چند دقیقه دیگه دوباره امتحان کن.",
 
     # Solve
-    "solve.text": "🧮 حل معادله\n\nیه معادله بنویس تا حلش کنم، مثلاً:",
+    "solve.text": "🧮 حل معادله · {course}\nیه معادله بنویس تا حلش کنم، مثلاً:",
     "solve.reply_hint": "✏️ روی همین پیام ریپلای کن و معادله‌ت رو بنویس.",
     "solve.more": "✏️ معادله‌ی دیگه‌ای داری؟ بنویس، یا «🏠 منو» رو بزن.",
     "solve.more_group": "✏️ برای معادله‌ی بعدی روی همین پیام ریپلای کن.",
@@ -147,7 +176,7 @@ STRINGS = {
     "solve.error.every_x": "✅ این معادله به ازای هر مقداری از مجهول درسته.",
 
     # Plot
-    "plot.text": "📈 رسم نمودار\n\nیه تابع بنویس تا نمودارش رو بکشم، مثلاً:",
+    "plot.text": "📈 رسم نمودار · {course}\nیه تابع بنویس تا نمودارش رو بکشم، مثلاً:",
     "plot.range": "برای انتخاب بازه‌ی محور افقی، اینو آخرش اضافه کن:",
     "plot.reply_hint": "✏️ روی همین پیام ریپلای کن و تابعت رو بنویس.",
     "plot.more": "✏️ تابع دیگه‌ای داری؟ بنویس، یا «🏠 منو» رو بزن.",
@@ -181,6 +210,7 @@ STRINGS = {
     # Pop-up notices (shown briefly at the top of the chat)
     "toast.saved": "✅ ذخیره شد",
     "toast.premium_thanks": "🙏 مرسی!",
+    "toast.notify_saved": "🔔 ذخیره شد. وقتی آماده شد خبرت می‌کنم.",
     "toast.removed": "برداشته شد",
     "toast.cleared": "✅ {count} پیام ذخیره‌شده پاک شد",
     "toast.nothing_to_clear": "چیزی برای پاک کردن نبود",

@@ -2,15 +2,37 @@
 
 STRINGS = {
     # Levels
-    "level.middle_school": "Middle School",
-    "level.high_school": "High School",
-    "level.pre_college": "Pre-College",
+    "level.middle_school": "Grades 7–9",
+    "level.high_school": "Grades 10–11",
+    "level.pre_college": "Grade 12 · Konkur",
     "level.university": "University",
 
-    # /start and the main menu
-    "welcome": "Welcome to {bot} 🎓\nNot just answers. Real learning.\nTap the 🏠 Menu button at the bottom any time.",
-    "home.text": "{bot} 🎓\n\nLevel: {level}\nWhat would you like to do?",
+    # /start and the home screen (the course picker)
+    "welcome": "Welcome to {bot} 🎓\nNot just answers. Real learning.\nAt the bottom, 🏠 Menu opens the home screen and ▶️ Continue takes you back to where you were.",
+    "home.text": "{bot} 🎓 · {level}\n\nPick up where you left off, or choose a course:",
+    "home.text_new": "{bot} 🎓 · {level}\n\nChoose a course to start:",
     "home.hint": "Pick something from the menu below 👇",
+    "keyboard.notice": "✨ New: the ▶️ Continue button at the bottom takes you back to where you were.",
+
+    # Setup: three questions for new students (/start in a private chat)
+    "setup.language": "👋 Welcome to {bot} 🎓\nNot just answers. Real learning.\n\nFirst, which language do you prefer?",
+    "setup.level": "Step 2 of 3\n🎓 What do you study right now?\nLessons and questions follow this. You can change it any time.",
+    "setup.course": "Step 3 of 3\n📚 What do you want to start with?",
+    "setup.done": "✅ All set! At the bottom, 🏠 Menu opens the home screen and ▶️ Continue takes you back to where you were.",
+
+    # Course hubs (the course names are in modules/courses.py)
+    "hub.mastery": "📊 Mastery {bar} {percent}%",
+    "hub.suggested": "⭐ Suggested next: {topic} ({difficulty})",
+
+    # 🔜 Coming-soon screens: "soon.<course id>" for every course that isn't live
+    "soon.physics": "⚛️ Physics is coming soon\nLessons and practice for your grade, a formula sheet, a unit converter and a Konkur section.",
+    "soon.ai": "🤖 The AI course is coming soon\nFour tracks, from 12–14-year-olds to university students: what AI is, how machines learn, how chatbots work and how to use AI honestly for study.",
+    "soon.astronomy": "🔭 Astronomy is coming soon\nTonight's sky for your city, and lessons and quizzes about the Moon, the planets and the stars.",
+    "soon.chemistry": "🧪 Chemistry is coming soon\nLessons, practice with formulas and reactions, molar mass and a Konkur section.",
+    "soon.astrology": "✨ Astrology is coming soon\nThe story of the zodiac from Babylon to al-Biruni, why the signs no longer match the sky, and ✨ Your birth sky: where the planets really were on your birthday.",
+    "soon.konkur": "🎯 Konkur is coming soon\nMini mock tests with 4 choices and negative marking, chapter-by-chapter tests, your weak spots and a study plan.",
+    "soon.ask": "Want to know when it's ready?",
+    "soon.saved": "✅ I'll tell you when it's ready.",
 
     # Buttons
     "btn.learn": "📘 Learn",
@@ -18,10 +40,17 @@ STRINGS = {
     "btn.tutor": "🧑‍🏫 Ask the tutor",
     "btn.solve": "🧮 Solve",
     "btn.plot": "📈 Plot",
-    "btn.progress": "📊 My progress",
+    "btn.progress": "📊 Progress",
     "btn.settings": "⚙️ Settings",
     "btn.premium": "💎 Premium",
     "btn.menu": "🏠 Menu",
+    "btn.continue": "▶️ Continue",
+    "btn.continue_named": "▶️ Continue: {topic}",
+    "btn.start_named": "▶️ Start: {topic}",
+    "btn.practice_next": "▶️ Practice: {topic}",
+    "btn.konkur_course": "🎯 Konkur {course} 🔜",
+    "btn.back_course": "🔙 {course}",
+    "btn.notify": "🔔 Notify me",
     "btn.back_settings": "🔙 Settings",
     "btn.language": "🌐 Language",
     "btn.level": "🎓 Level",
@@ -57,10 +86,10 @@ STRINGS = {
     "difficulty.hard": "🔴 Hard",
 
     # Practice screens
-    "practice.topics": "✍️ Practice · {level}\n\nPick a topic:",
+    "practice.topics": "✍️ {where}\nPick a topic:",
     "practice.topic_progress": "{topic}: {bar} {percent}%",
     "practice.topic_new": "{topic}: not started yet",
-    "practice.header": "✍️ {topic} · {difficulty}",
+    "practice.header": "✍️ {course} › {topic} · {difficulty}",
     "prompt.solve": "Solve for x:",
     "prompt.evaluate": "Find the value:",
     "prompt.derivative": "Find the derivative:",
@@ -96,7 +125,8 @@ STRINGS = {
     "step.each_term": "Differentiate each term. A number on its own becomes 0:",
 
     # Learn
-    "learn.topics": "📘 Learn · {level}\n\nPick a topic:",
+    "learn.topics": "📘 {where}\nPick a topic:",
+    "learn.title": "📘 {where}",
     "learn.example": "📝 Example:",
     "lesson.linear_equations.idea": "A linear equation has an unknown, x, and the highest power of x is 1. To solve it, get x alone on one side.",
     "lesson.linear_equations.rule": "The golden rule: whatever you do to one side, do to the other side too.",
@@ -111,8 +141,7 @@ STRINGS = {
     "step.check": "Check by putting the answer back in:",
 
     # Ask the tutor
-    "tutor.text": "🧑‍🏫 Ask the tutor\n\nType your math question and I'll explain it step by step.",
-    "tutor.topic": "Topic: {topic}",
+    "tutor.text": "🧑‍🏫 Ask the tutor · {where}\nType any math question and I'll explain it step by step.",
     "tutor.reply_hint": "✏️ Reply to this message with your question.",
     "tutor.more": "✏️ Type another question, or tap 🏠 Menu.",
     "tutor.more_group": "✏️ Reply to this message to ask more.",
@@ -121,7 +150,7 @@ STRINGS = {
     "ai.unavailable": "😕 The tutor isn't available right now. Please try again in a few minutes.",
 
     # Solve
-    "solve.text": "🧮 Solve\n\nType an equation and I'll solve it, for example:",
+    "solve.text": "🧮 Solve · {course}\nType an equation and I'll solve it, for example:",
     "solve.reply_hint": "✏️ Reply to this message with your equation.",
     "solve.more": "✏️ Type another equation, or tap 🏠 Menu.",
     "solve.more_group": "✏️ Reply to this message with another equation.",
@@ -141,7 +170,7 @@ STRINGS = {
     "solve.error.every_x": "✅ This equation is true for every x.",
 
     # Plot
-    "plot.text": "📈 Plot\n\nType a function and I'll draw its graph, for example:",
+    "plot.text": "📈 Plot · {course}\nType a function and I'll draw its graph, for example:",
     "plot.range": "To choose the x range, add it at the end:",
     "plot.reply_hint": "✏️ Reply to this message with your function.",
     "plot.more": "✏️ Type another function, or tap 🏠 Menu.",
@@ -175,6 +204,7 @@ STRINGS = {
     # Pop-up notices (shown briefly at the top of the chat)
     "toast.saved": "✅ Saved",
     "toast.premium_thanks": "🙏 Thanks!",
+    "toast.notify_saved": "🔔 Saved. I'll tell you when it's ready.",
     "toast.removed": "Removed",
     "toast.cleared": "✅ Cleared {count} saved messages",
     "toast.nothing_to_clear": "Nothing to clear",

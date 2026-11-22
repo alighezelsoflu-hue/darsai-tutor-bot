@@ -1,4 +1,9 @@
-"""/start, the main menu and the Settings screens."""
+"""/start, the home screen (the course picker) and the Settings screens.
+
+Home: ▶️ Continue (or ▶️ Start for a student with nothing to continue), the course grid, 🎯 Konkur, then
+📊 Progress, 💎 Premium and ⚙️ Settings. /start in a private chat asks new students the setup questions
+first (ui/setup.py).
+"""
 
 import asyncio
 from typing import List, Tuple
@@ -12,35 +17,40 @@ from modules.i18n import LANGUAGE_NAMES, UI_LANGUAGES, level_label, local_digits
 from modules.input_mode import clear_input_mode
 from modules.math.shared import get_user_level, set_user_level
 from modules.math.topics import LEVEL_ORDER
-from modules.student import set_language
+from modules.student import get_student, set_language
 
+from . import setup
 from .core import Screen, menu_reply_keyboard
+from .courses import continue_target, course_grid
+from .practice import topic_name
 
 
 # ------------------------------------------------------------
-# Main menu
+# Home
 # ------------------------------------------------------------
 
-def home_keyboard(screen: Screen) -> InlineKeyboardMarkup:
+def home_keyboard(screen: Screen, continuing: bool, topic: str) -> InlineKeyboardMarkup:
     s = screen
-    return s.keyboard([
-        [s.button(s.t("btn.learn"), "learn"), s.button(s.t("btn.practice"), "prac")],
-        [s.button(s.t("btn.tutor"), "tutor"), s.button(s.t("btn.solve"), "solve")],
-        [s.button(s.t("btn.plot"), "plot"), s.button(s.t("btn.progress"), "prog")],
-        [s.button(s.t("btn.settings"), "set"), s.button(s.t("btn.premium"), "prem")],
-    ])
+    label = s.t("btn.continue_named" if continuing else "btn.start_named", topic=topic_name(s, topic))
+    return s.keyboard(
+        [[s.button(label, "cont")]]
+        + course_grid(s, "c")
+        + [[s.button(s.t("btn.progress"), "prog"), s.button(s.t("btn.premium"), "prem"), s.button(s.t("btn.settings"), "set")]]
+    )
 
 
 async def home_view(screen: Screen, hint: bool = False) -> Tuple[str, InlineKeyboardMarkup]:
     level = await asyncio.to_thread(get_user_level, screen.chat_id, screen.user_id)
+    continuing, _, topic = await continue_target(screen)
     parts: List[str] = []
     if hint:
         parts.append(screen.t("home.hint"))
     if not screen.private:
         # In a group, say whose menu this is.
         parts.append(f"👤 {screen.user.first_name}")
-    parts.append(screen.t("home.text", bot=BOT_NAME, level=level_label(screen.lang, level)))
-    return "\n\n".join(parts), home_keyboard(screen)
+    key = "home.text" if continuing else "home.text_new"
+    parts.append(screen.t(key, bot=BOT_NAME, level=level_label(screen.lang, level)))
+    return "\n\n".join(parts), home_keyboard(screen, continuing, topic)
 
 
 async def home_route(screen: Screen, args: List[str]) -> None:
@@ -56,7 +66,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     screen = await Screen.load(update, context)
     await asyncio.to_thread(clear_input_mode, screen.chat_id, screen.user_id)
     if screen.private:
-        # A separate message, because one message can't carry both the bottom Menu button and inline buttons.
+        saved = await asyncio.to_thread(get_student, screen.user_id)
+        if not saved["setup_done"]:
+            await setup.ask_language(screen)
+            return
+        await setup.keyboard_brought(screen.user_id, saved["keyboard_version"])
+        # A separate message, because one message can't carry both the bottom keyboard and inline buttons.
         await update.effective_message.reply_text(
             screen.t("welcome", bot=BOT_NAME), reply_markup=menu_reply_keyboard(screen.lang)
         )
