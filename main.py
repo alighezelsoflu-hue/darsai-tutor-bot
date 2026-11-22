@@ -15,6 +15,7 @@ from modules.db import close_pool
 from modules.math.math import register_math_handlers
 from modules.i18n import detect_language, t
 from modules.migrations import migrate
+from modules.privacy import drop_kept_usage
 from modules.stats import register_stats_handlers
 from modules.ui.core import Screen
 from modules.ui.home import home_view
@@ -136,8 +137,11 @@ register_handlers()
 
 
 def init_databases() -> None:
-    """Blocking. Bring the database schema up to date at startup (modules/migrations.py)."""
+    """Blocking. Bring the database schema up to date at startup (modules/migrations.py), then remove the
+    past days' tutor-message counts that Delete my data kept for the daily limit (modules/privacy.py).
+    """
     migrate()
+    drop_kept_usage()
 
 
 @asynccontextmanager

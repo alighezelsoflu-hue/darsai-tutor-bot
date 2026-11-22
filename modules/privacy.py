@@ -8,6 +8,13 @@ Afterwards the student is new to the bot (no darsai_first_seen row, setup not do
 Without a database, the same happens in the in-memory stores (_MEMORY_STORES). A test checks that every
 module-level fallback dict is listed there.
 
+One thing is kept on purpose: today's tutor-message count (darsai_ai_usage for today's UTC day, the day
+reserve_ai_message charges). Without it, deleting would reset the daily limit, and a student could delete
+again and again for unlimited tutor messages. Once the day is over, drop_kept_usage() removes it: it deletes
+past days' usage rows of students with no darsai_first_seen row, which after a delete is exactly them (anyone
+who uses the bot again gets a first-seen row again). It runs at startup and after every delete; in memory the
+old days go by themselves (reserve_ai_message drops them).
+
 What is stored, and why, is in docs/data-inventory.md. The per-process caches with user ids are cleared by
 ui/privacy.py, which can import the screens' modules.
 
@@ -53,19 +60,54 @@ def personal_tables(cur) -> List[str]:
     return [row[0] for row in cur.fetchall()]
 
 
+# The table with today's tutor-message count, which a delete keeps until the day is over.
+USAGE_TABLE = "darsai_ai_usage"
+
+
+def _drop_kept_usage(cur, today) -> int:
+    cur.execute("""
+        DELETE FROM darsai_ai_usage AS u
+        WHERE u.day < %s AND NOT EXISTS (SELECT 1 FROM darsai_first_seen AS f WHERE f.user_id = u.user_id)
+    """, (today,))
+    return cur.rowcount
+
+
+def drop_kept_usage() -> int:
+    """Delete the past days' tutor-message counts that deletes kept (see the module docstring). Startup calls it."""
+    if not db_configured():
+        return 0
+    with connection() as conn, conn.cursor() as cur:
+        dropped = _drop_kept_usage(cur, ai._today())
+    if dropped:
+        logger.info("Removed %d tutor-message counts kept by Delete my data on earlier days.", dropped)
+    return dropped
+
+
 def delete_student(user_id: int) -> Dict[str, int]:
-    """Delete everything stored about the student. Returns {table or store: rows deleted} (only those with rows)."""
+    """Delete everything stored about the student but today's tutor-message count.
+
+    Returns {table or store: rows deleted} (only those with rows).
+    """
     deleted: Dict[str, int] = {}
+    today = ai._today()
     if db_configured():
         with connection() as conn, conn.cursor() as cur:
             for table in personal_tables(cur):
-                cur.execute(sql.SQL("DELETE FROM {} WHERE user_id = %s").format(sql.Identifier(table)), (user_id,))
+                query = sql.SQL("DELETE FROM {} WHERE user_id = %s").format(sql.Identifier(table))
+                params = (user_id,)
+                if table == USAGE_TABLE:
+                    query = sql.SQL("DELETE FROM {} WHERE user_id = %s AND day <> %s").format(sql.Identifier(table))
+                    params = (user_id, today)
+                cur.execute(query, params)
                 if cur.rowcount:
                     deleted[table] = cur.rowcount
+            _drop_kept_usage(cur, today)
     else:
         with _LOCK:
             for name, store, user_of in _MEMORY_STORES:
                 keys = [key for key in list(store) if user_of(key) == user_id]
+                if store is ai._USAGE_FALLBACK:
+                    keys = [key for key in keys if key[1] != today]
                 for key in keys:
                     store.pop(key, None)
                 if keys:

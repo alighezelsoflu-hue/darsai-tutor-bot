@@ -128,7 +128,9 @@ class DeleteTests(TelegramMocks):
         self.assertTrue(text.startswith("✅ انجام شد."), "in the language they used")
         self.assertIsNone(self.markup(self.edit_text.call_args), "no buttons: they would start new records")
 
-        self.assertEqual({name: keys for name, keys in self.stores_of(STUDENT).items() if keys}, {})
+        # Only today's tutor-message count stays (the daily limit).
+        self.assertEqual({name: keys for name, keys in self.stores_of(STUDENT).items() if keys},
+                         {"ai._USAGE_FALLBACK": [(STUDENT, ai._today())]})
         self.assertNotIn(STUDENT, stats._seen)
         self.assertNotIn(STUDENT, setup._current)
         self.assertTrue(all(self.stores_of(OTHER).values()), "the other student keeps everything")
@@ -139,6 +141,20 @@ class DeleteTests(TelegramMocks):
         run(home.start_command, text_update("/start", user_id=STUDENT))
         self.assertIn("which language", self.reply_text.call_args.args[0])
         self.assertIsNone(activity._FIRST_SEEN[STUDENT]["source"], "the start link they came from is gone")
+
+    def test_deleting_does_not_reset_the_daily_tutor_limit(self):
+        from datetime import timedelta
+        ai._USAGE_FALLBACK[(STUDENT, ai._today() - timedelta(days=1))] = 2
+        for _ in range(config.FREE_DAILY_AI_LIMIT):
+            ai.reserve_ai_message(STUDENT)
+        with self.assertRaises(ai.AILimitReached):
+            ai.reserve_ai_message(STUDENT)
+        ai._USAGE_FALLBACK[(STUDENT, ai._today() - timedelta(days=1))] = 2  # reserve drops other days; put one back
+        privacy.delete_student(STUDENT)
+        with self.assertRaises(ai.AILimitReached):
+            ai.reserve_ai_message(STUDENT)
+        self.assertEqual([key for key in ai._USAGE_FALLBACK if key[0] == STUDENT], [(STUDENT, ai._today())])
+        ai.reserve_ai_message(OTHER)  # others are not affected
 
     def test_delete_logs_counts_never_content(self):
         self.use_everything(STUDENT)

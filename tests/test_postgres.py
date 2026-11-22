@@ -380,6 +380,7 @@ class PostgresTests(TelegramMocks):
         shared.save_active_question(-100, user_id, {"id": "g", "message_ids": []})  # in a group
         input_mode.set_input_mode(user_id, user_id, {"id": "m", "mode": "solve"})
         ai.reserve_ai_message(user_id)
+        execute("INSERT INTO darsai_ai_usage (user_id, day, count) VALUES (%s, %s, 5)", (user_id, ai._today() - timedelta(days=3)))
         ai.save_exchange(user_id, user_id, "math", "my question", "an answer")
         ai.save_exchange(-100, user_id, "math", "in the group", "an answer")
         premium.set_choice(user_id, "photo", True, "menu", "fa")
@@ -403,12 +404,41 @@ class PostgresTests(TelegramMocks):
         deleted = privacy.delete_student(5)
         self.assertEqual(deleted["darsai_ai_messages"], 4)
         self.assertEqual(deleted["darsai_active_question"], 2)
-        self.assertEqual(set(self.rows_of(5).values()), {0})
+        self.assertEqual(deleted["darsai_ai_usage"], 1, "the older day only")
+        rows = self.rows_of(5)
+        self.assertEqual(rows.pop("darsai_ai_usage"), 1, "today's count stays, for the daily limit")
+        self.assertEqual(set(rows.values()), {0})
+        self.assertEqual(execute("SELECT day FROM darsai_ai_usage WHERE user_id = 5"), [(ai._today(),)])
         self.assertTrue(all(self.rows_of(6).values()), "the other student keeps everything")
         self.assertEqual(student.get_student(5), {"language": None, "level": None, "setup_done": False, "keyboard_version": 0})
         # Their old progress can't come back: migration 1 never runs again, and its table is emptied too.
         main.init_databases()
         self.assertEqual(shared.get_mastery(5), {})
+
+    def test_deleting_does_not_reset_the_daily_tutor_limit(self):
+        main.init_databases()
+        activity.mark_active(5)
+        activity.mark_active(6)
+        for _ in range(config.FREE_DAILY_AI_LIMIT):
+            ai.reserve_ai_message(5)
+        with self.assertRaises(ai.AILimitReached):
+            ai.reserve_ai_message(5)
+        privacy.delete_student(5)
+        with self.assertRaises(ai.AILimitReached):
+            ai.reserve_ai_message(5)
+        # Once the day is over, the kept count goes at the next startup; other students' old days stay.
+        execute("INSERT INTO darsai_ai_usage (user_id, day, count) VALUES (6, %s, 2)", (ai._today() - timedelta(days=1),))
+        execute("UPDATE darsai_ai_usage SET day = day - 1 WHERE user_id = 5")
+        with self.assertLogs("modules.privacy", "INFO") as logs:
+            main.init_databases()
+        self.assertIn("Removed 1 tutor-message counts kept by Delete my data", logs.output[0])
+        self.assertEqual(execute("SELECT user_id FROM darsai_ai_usage ORDER BY user_id"), [(6,)])
+        # A student who deleted and came back the same day keeps their count (they have a first-seen row again).
+        privacy.delete_student(6)
+        activity.mark_active(6)
+        ai.reserve_ai_message(6)
+        privacy.drop_kept_usage()
+        self.assertEqual(execute("SELECT COUNT(*) FROM darsai_ai_usage WHERE user_id = 6 AND day = %s", (ai._today(),)), [(1,)])
 
     def test_delete_my_data_is_all_or_nothing(self):
         main.init_databases()

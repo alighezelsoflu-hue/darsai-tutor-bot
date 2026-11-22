@@ -5,7 +5,8 @@ or a service that receives data is added: the privacy policy (`privacy.*` in `mo
 shown by `/privacy`) is written from this list.
 
 🗑 Delete my data (`/deletemydata`, ⚙️ Settings → 🔒 Privacy) deletes the student's rows from **every**
-`darsai_*` table with a `user_id` column, found when it runs (`modules/privacy.py`), in one transaction. A new
+`darsai_*` table with a `user_id` column, found when it runs (`modules/privacy.py`), in one transaction,
+except today's tutor-message count (see `darsai_ai_usage` below). A new
 table with a `user_id` column is covered automatically. A table that holds personal data **without** a
 `user_id` column would not be: give every such table a `user_id` column.
 
@@ -22,7 +23,7 @@ from Europe, so the GDPR may apply. Please check it with someone qualified.
 | `darsai_active_question` | Chat id, user id, the current practice question (generated numbers, the answer, the message ids showing it) | Checking the typed answer; one per chat | Until answered or replaced (typed text stops counting after 24 hours) |
 | `darsai_input_mode` | Chat id, user id, the open tool (tutor, solve, plot), its message ids, the last equation solved (as typed) | Sending typed text to the right tool; 🧑‍🏫 Explain step by step | Until the student leaves the tool (it stops counting after 24 hours) |
 | `darsai_ai_messages` | Chat id, user id, topic, role, the text of each tutor question and answer, time | The tutor remembers the conversation (the last `AI_MAX_HISTORY_MESSAGES` per topic are sent) | Until 🧹 Clear tutor memory, `/newchat` or deletion. Phase 1 step 11 adds: newest 16 per conversation, at most 90 days |
-| `darsai_ai_usage` | User id, UTC day, tutor messages that day | The daily limit; `/stats` | Until deleted |
+| `darsai_ai_usage` | User id, UTC day, tutor messages that day | The daily limit; `/stats` | Until deleted. Delete my data keeps **today's** row until the day ends, so deleting can't reset the daily limit (otherwise a student could delete again and again for unlimited tutor messages, at the bot owner's cost). After that day it is removed at the next startup or Delete my data (`privacy.drop_kept_usage`) |
 | `darsai_daily_activity` | UTC day, user id, practice answers that day | `/stats` (active students, practice answers) | Until deleted |
 | `darsai_first_seen` | User id, start-link source (if any), first time seen | `/stats` (new students per start link) | Until deleted |
 | `darsai_premium_waitlist` | User id, Premium pick, where it was picked, interface language, time | The waitlist; announcing Premium in the student's language | Until the pick is removed or deleted |

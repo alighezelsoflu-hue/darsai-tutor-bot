@@ -80,15 +80,15 @@ STRINGS = {
 
     # 🔒 Privacy (⚙️ Settings → 🔒 Privacy, /privacy) and 🗑 Delete my data (/deletemydata)
     "privacy.title": "🔒 Privacy · {bot}",
-    "privacy.stored": "What the bot saves about you, and why:\n• Your Telegram user id, and the chats you use the bot in, so it knows it's you\n• Your language, level and settings\n• Your practice results and progress\n• Your questions to the tutor and its answers, so it remembers the conversation (⚙️ Settings → 🧹 Clear tutor memory deletes them)\n• How many tutor messages you used today, for the daily limit\n• Your 💎 Premium picks, the courses you tapped 🔔 Notify me for, and the start link you came from, if any\n• The days you used the bot, for our usage numbers",
+    "privacy.stored": "What the bot saves about you, and why:\n• Your Telegram user id, and the chats you use the bot in, so it knows it's you\n• Your language, level and settings\n• Your practice results and progress\n• Your questions to the tutor and its answers, so it remembers the conversation (⚙️ Settings → 🧹 Clear tutor memory deletes them)\n• How many tutor messages you send each day, for the daily limit and our usage numbers. After 🗑 Delete my data, only today's count stays until the end of the day, so the daily limit still works.\n• Your 💎 Premium picks, the courses you tapped 🔔 Notify me for, and the link you found the bot through, if any\n• The days you used the bot, for our usage numbers",
     "privacy.not_stored": "It doesn't save your name, username, phone number or photos.",
     "privacy.receivers": "Who else gets data:\n• Your questions to the tutor, with your recent conversation on that topic, go to {ai} (USA), which writes the answers. Without your name or Telegram id.\n• The bot runs on Render (server) and Neon (database) in Frankfurt, Germany. The server's logs can show your Telegram user id for a short time.",
     "privacy.sentry": "• Error reports go to Sentry, without what you send.",
     "privacy.telegram_chat": "Messages in this chat are kept by Telegram, separately from the bot. To remove them, delete the chat in Telegram.",
     "privacy.delete": "🗑 Delete my data (below, or /deletemydata) deletes everything the bot saved about you, at once.",
     "privacy.contact": "Questions about your data: {contact}",
-    "delete.confirm": "🗑 Delete all your data?\nThis deletes everything the bot saved about you, in every chat: your settings, progress, tutor conversations, picks and usage. It can't be undone.\nMessages in your Telegram chats stay until you delete them in Telegram.",
-    "delete.done": "✅ Done. Everything the bot saved about you is deleted.\nIf you use the bot again, it starts fresh. Send /start to begin.",
+    "delete.confirm": "🗑 Delete all your data?\nThis deletes everything the bot saved about you, in every chat: your settings, progress, tutor conversations, picks and usage. It can't be undone.\nOnly today's tutor-message count stays until the end of the day, for the daily limit.\nMessages in your Telegram chats stay until you delete them in Telegram.",
+    "delete.done": "✅ Done. Everything the bot saved about you is deleted (only today's tutor-message count stays until the end of the day).\nIf you use the bot again, it starts fresh. Send /start to begin.",
 
     # Practice topics and difficulty
     "topic.linear_equations": "Linear equations",
