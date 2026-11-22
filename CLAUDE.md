@@ -19,8 +19,10 @@ python run_local.py                                                             
 uvicorn main:api --host 0.0.0.0 --port $PORT                                        # Render start command
 ```
 
+- GitHub Actions (`.github/workflows/tests.yml`) runs two checks on every push and pull request, on Python 3.11: "Tests" (everything, in-memory storage) and "PostgreSQL tests" (`tests/test_postgres.py` against a PostgreSQL 17 service).
+- `tests/test_postgres.py` runs the SQL against a real database and is skipped unless `TEST_DATABASE_URL` is set. Each test drops every darsai_* table first, so the tests refuse a database whose name doesn't contain "test". Locally, with a throwaway server (see Local environment gotchas) and `createdb darsai_test`: `TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/darsai_test python -m unittest tests.test_postgres`. Add a test there for every new or changed SQL statement.
 - Run tests as modules of the `tests` package. `tests/__init__.py` sets environment variables before `config.py` is imported: a fake bot token, an empty `DATABASE_URL` so the in-memory fallbacks are used, and `FREE_DAILY_AI_LIMIT=3`. The tests never call Telegram, an AI provider or a database.
-- No linter or formatter is configured.
+- No linter or formatter is configured. Package versions are pinned in `requirements.txt` (Render installs from it).
 - `run_local.py` is local dev mode. It uses long polling with a separate BotFather test bot and reads `.env.local`, which is git-ignored. It takes the bot token only from `LOCAL_TELEGRAM_BOT_TOKEN` and the database only from `LOCAL_DATABASE_URL` (empty means in-memory). It sets a placeholder `WEBHOOK_URL` before importing `main`, because `main.py` raises an error at import time without one, and then reuses `main.telegram_app`. Its `post_init` refuses to start if the bot already has a webhook, because polling deletes the webhook and would take production offline. Keep this guard. Render never runs this file, so `main.py` stays webhook-only.
 - To check handlers without Telegram, send real `Update` objects through `main.telegram_app` and mock `reply_text`, the callback-query methods and `ai.call_ai_provider`.
 - All settings come from environment variables, which `config.py` reads at import time. `.env.example` lists every one of them.
