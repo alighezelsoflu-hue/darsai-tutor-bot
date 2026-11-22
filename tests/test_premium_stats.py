@@ -1,7 +1,7 @@
 """💎 Premium (the waitlist picks), the daily activity tracker and /stats."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -219,6 +219,28 @@ class ActivityTests(TelegramMocks):
         seen = {uid for (_, uid) in activity._FALLBACK}
         self.assertEqual(seen, {11, 12})
 
+    def test_start_links_give_new_students_a_source(self):
+        self.track(text_update("/start insta_story-2", user_id=21))
+        self.assertEqual(activity._FIRST_SEEN[21]["source"], "insta_story-2")
+        stats._seen.clear()  # the next day
+        self.track(text_update("/start telegram_ad", user_id=21))
+        self.assertEqual(activity._FIRST_SEEN[21]["source"], "insta_story-2", "only the first source is kept")
+
+        self.track(text_update("hello", user_id=22))
+        stats._seen.clear()
+        self.track(text_update("/start telegram_ad", user_id=22))
+        self.assertIsNone(activity._FIRST_SEEN[22]["source"], "not new any more: no source")
+
+    def test_invalid_start_payloads_are_ignored(self):
+        payloads = ["/start bad!link", "/start " + "a" * 65, "/start two words", "/start", "/starter x", "/help src"]
+        for user_id, text in enumerate(payloads, start=30):
+            self.track(text_update(text, user_id=user_id))
+            self.assertIsNone(activity._FIRST_SEEN[user_id]["source"], text)
+        self.track(text_update("/start@DarsAIBot src_1", user_id=40))
+        self.assertEqual(activity._FIRST_SEEN[40]["source"], "src_1")
+        self.track(text_update("/start src_1", user_id=41, chat_type="supergroup"))
+        self.assertIsNone(activity._FIRST_SEEN[41]["source"], "start links open a private chat")
+
     def test_a_failure_is_only_logged_and_tried_again(self):
         with patch.object(activity, "mark_active", side_effect=RuntimeError("database is down")):
             with self.assertLogs("modules.stats", "WARNING"):
@@ -298,10 +320,60 @@ class StatsTests(TelegramMocks):
         self.assertIn("From 💎 Premium: 1 · From the limit message: 1", lines, "student 8 first picked on the limit message")
         premium.set_choice(7, "ai", True, "menu", "en")
         lines = self.ask().splitlines()
+        # Only the tracker (mark_active) records first sightings: students 1 to 4, all today.
+        self.assertEqual(after("🔗 New students"), "Today: 4 · Last 7 days: 4 · All time: 4")
         for line in ("🎯 Konkur exam prep: 0", "🧑‍🏫 More tutor messages: 1", "📷 Photo solving: 2",
                      "📊 Study plan and weekly report: 0", "🤖 AI course: 1"):
             self.assertIn(line, lines)
         self.assertNotIn("Counting by day started", text, "the daily table covers the whole week")
+
+    def test_new_students_by_start_link(self):
+        now = datetime.now(timezone.utc)
+        seen = {
+            1: ("insta", now), 2: ("insta", now - timedelta(days=3)), 3: ("insta", now - timedelta(days=30)),
+            4: ("ad_nov", now), 5: (None, now), 6: (None, now - timedelta(days=100)),
+        }
+        for user_id, (source, at) in seen.items():
+            activity._FIRST_SEEN[user_id] = {"source": source, "at": at}
+        lines = self.ask().splitlines()
+        start = lines.index("🔗 New students")
+        self.assertEqual(lines[start + 1:start + 6], [
+            "Today: 3 · Last 7 days: 4 · All time: 6",
+            "By start link (today · last 7 days · all time):",
+            "insta: 1 · 2 · 3",
+            "ad_nov: 1 · 1 · 1",
+            "No link: 1 · 1 · 2",
+        ])
+
+    def test_many_links_are_added_up(self):
+        now = datetime.now(timezone.utc)
+        for user_id in range(stats.MAX_SOURCES + 3):
+            activity._FIRST_SEEN[user_id] = {"source": f"link{user_id:02d}", "at": now}
+        text = self.ask()
+        self.assertIn("link14: 1 · 1 · 1", text)
+        self.assertNotIn("link15", text)
+        self.assertIn("3 more links: 3 · 3 · 3", text)
+
+    def test_admins_are_left_out_of_every_number(self):
+        admin = self.ADMIN
+        activity.mark_active(admin, source="insta")
+        record_answer(admin, "high_school", "algebra", "easy", "first_try")
+        for _ in range(3):
+            ai.reserve_ai_message(admin)
+        ai.save_exchange(admin, admin, "math", "q", "a")
+        premium.set_choice(admin, "photo", True, "menu", "en")
+        student.set_language(admin, "fa")
+        text = self.ask()
+        for line in (
+            "Today: 0 · Last 7 days: 0 · All time: 0",
+            "⏳ Hit the daily limit today: 0 students (limit 3)",
+            "💎 Premium waitlist: 0 students",
+            "📷 Photo solving: 0",
+            "Admins (ADMIN_USER_IDS) are left out of every number.",
+        ):
+            self.assertIn(line, text)
+        self.assertNotIn("insta", text)
+        self.assertNotIn(": 1", text)
 
     def test_a_new_table_says_when_counting_started(self):
         activity.mark_active(1)

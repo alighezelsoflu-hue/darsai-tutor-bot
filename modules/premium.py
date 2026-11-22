@@ -9,7 +9,7 @@ All functions are blocking. Call them with asyncio.to_thread.
 
 import threading
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 from modules.db import connection, db_configured
 
@@ -76,28 +76,37 @@ def set_choice(user_id: int, choice: str, picked: bool, source: str, language: s
         return _ordered(c for (uid, c) in _FALLBACK if uid == user_id)
 
 
-def waitlist_summary() -> Dict:
+def waitlist_summary(exclude: Iterable[int] = ()) -> Dict:
     """{"students": n, "sources": {source: students}, "choices": {choice: students}} for /stats.
 
-    A student's source is where they made their first pick.
+    A student's source is where they made their first pick. Students in exclude (admins) are left out.
     """
+    exclude = sorted(set(exclude))
     if db_configured():
+        params = {"exclude": exclude}
         with connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT COUNT(DISTINCT user_id) FROM darsai_premium_waitlist")
+            cur.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM darsai_premium_waitlist WHERE user_id <> ALL(%(exclude)s::bigint[])",
+                params,
+            )
             students = cur.fetchone()[0]
-            cur.execute("SELECT choice, COUNT(*) FROM darsai_premium_waitlist GROUP BY choice")
+            cur.execute("""
+                SELECT choice, COUNT(*) FROM darsai_premium_waitlist
+                WHERE user_id <> ALL(%(exclude)s::bigint[]) GROUP BY choice
+            """, params)
             choices = dict(cur.fetchall())
             cur.execute("""
                 SELECT source, COUNT(*) FROM (
                     SELECT DISTINCT ON (user_id) user_id, source FROM darsai_premium_waitlist
+                    WHERE user_id <> ALL(%(exclude)s::bigint[])
                     ORDER BY user_id, created_at, choice
                 ) AS first_pick
                 GROUP BY source
-            """)
+            """, params)
             sources = dict(cur.fetchall())
     else:
         with _LOCK:
-            rows = [(uid, choice, dict(row)) for (uid, choice), row in _FALLBACK.items()]
+            rows = [(uid, choice, dict(row)) for (uid, choice), row in _FALLBACK.items() if uid not in exclude]
         first: Dict[int, Tuple[float, str]] = {}
         choices = {}
         for uid, choice, row in rows:

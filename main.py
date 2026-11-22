@@ -5,10 +5,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from telegram import BotCommand, Update
+from telegram.error import TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
-from modules.activity import init_activity_db
+from modules.activity import init_activity_db, init_first_seen_db
 from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
 from modules.db import close_pool
 from modules.input_mode import init_input_db
@@ -90,6 +91,26 @@ async def setup_bot_commands() -> None:
         await telegram_app.bot.set_my_commands(commands, language_code=language_code)
 
 
+async def setup_bot_descriptions() -> None:
+    """The description (an empty chat, before Start) and short description (profile, shared links).
+
+    Only changed when the text differs, and a failure is only logged: it must not stop the bot.
+    """
+    bot = telegram_app.bot
+    for language_code in (None, "fa"):  # None: everyone whose Telegram isn't in Persian
+        lang = language_code or "en"
+        description = t(lang, "bot.description", bot=BOT_NAME)
+        short_description = t(lang, "bot.short_description", bot=BOT_NAME)
+        try:
+            if (await bot.get_my_description(language_code=language_code)).description != description:
+                await bot.set_my_description(description, language_code=language_code)
+            current = await bot.get_my_short_description(language_code=language_code)
+            if current.short_description != short_description:
+                await bot.set_my_short_description(short_description, language_code=language_code)
+        except TelegramError as error:
+            logger.warning("Could not set the bot's %s description: %s", lang, error)
+
+
 def register_handlers() -> None:
     register_stats_handlers(telegram_app)  # includes the activity tracker, which runs before everything else
     register_ui_handlers(telegram_app)
@@ -112,6 +133,7 @@ def init_databases() -> None:
     init_input_db()
     init_activity_db()
     init_premium_db()
+    init_first_seen_db()  # last: the first time, it copies in the students the other tables know
 
 
 @asynccontextmanager
@@ -120,6 +142,7 @@ async def lifespan(app: FastAPI):
     await telegram_app.initialize()
     await telegram_app.start()
     await setup_bot_commands()
+    await setup_bot_descriptions()
     await telegram_app.bot.set_webhook(
         url=FULL_WEBHOOK_URL,
         allowed_updates=Update.ALL_TYPES,
