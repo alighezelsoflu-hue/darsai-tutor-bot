@@ -26,6 +26,7 @@ STRINGS = {
     "btn.plot": "📈 رسم نمودار",
     "btn.progress": "📊 پیشرفت من",
     "btn.settings": "⚙️ تنظیمات",
+    "btn.premium": "💎 پریمیوم",
     "btn.menu": "🏠 منو",
     "btn.back_settings": "🔙 تنظیمات",
     "btn.language": "🌐 زبان",
@@ -122,6 +123,7 @@ STRINGS = {
     "tutor.more": "✏️ سؤال دیگه‌ای داری؟ بنویس، یا «🏠 منو» رو بزن.",
     "tutor.more_group": "✏️ برای سؤال بعدی روی همین پیام ریپلای کن.",
     "ai.limit": "⏳ امروز از همه‌ی {limit} پیامی که می‌شد از معلم بپرسی استفاده کردی. ساعت ۳:۳۰ بامداد به وقت تهران دوباره شارژ می‌شه. تمرین، یادگیری، حل معادله و رسم نمودار هنوز کار می‌کنن.",
+    "ai.limit_offer": "💎 اشتراک ویژه به‌زودی میاد و باهاش می‌تونی هر روز بیشتر از معلم بپرسی. بیشتر از همه دوست داری چی داشته باشه؟ هر چند تا که می‌خوای انتخاب کن:",
     "ai.unavailable": "😕 معلم الان در دسترس نیست. چند دقیقه دیگه دوباره امتحان کن.",
 
     # Solve
@@ -159,8 +161,26 @@ STRINGS = {
     "progress.topic": "{topic}: {bar} {percent}٪\n✅ {correct} · ❌ {wrong}",
     "progress.suggest": "💡 پیشنهاد بعدی: {topic}",
 
+    # 💎 Premium. The button says «پریمیوم»; longer text says «اشتراک ویژه».
+    "premium.title": "💎 اشتراک ویژه‌ی {bot}",
+    "premium.intro": "اشتراک ویژه هنوز آماده نیست. داریم روش کار می‌کنیم و این‌ها رو بهت می‌ده:",
+    "premium.feature.messages": "• 🧑‍🏫 پیام بیشتر به معلم در هر روز",
+    "premium.feature.photo": "• 📷 حل سؤال از روی عکس: از سؤالت عکس بگیر و بفرست",
+    "premium.feature.guide": "• 🧭 «راهنمایی‌م کن»: معلم جواب رو نمی‌گه. هر بار یه سؤال می‌پرسه، هر قدمی که می‌فرستی رو چک می‌کنه و دقیقاً نشون می‌ده اشتباه توی کدوم قدمه.",
+    "premium.feature.report": "• 📅 گزارش هفتگی پیشرفتت",
+    "premium.free_now": "فعلاً همه‌ی بخش‌های منو رایگانه (معلم محدودیت روزانه‌ی {limit} پیام داره).",
+    "premium.free_now_unlimited": "فعلاً همه‌ی بخش‌های منو رایگانه.",
+    "premium.question": "بیشتر از همه دوست داری اشتراک ویژه چی داشته باشه؟ هر چند تا که می‌خوای انتخاب کن:",
+    "premium.thanks": "🙏 مرسی! انتخاب‌هات ذخیره شد و وقتی اشتراک ویژه آماده شد، خبرت می‌کنم. برای برداشتن یه انتخاب، دوباره روش بزن.",
+    "premium.choice.konkur": "🎯 آمادگی کنکور",
+    "premium.choice.msgs": "🧑‍🏫 پیام بیشتر به معلم",
+    "premium.choice.photo": "📷 حل سؤال از روی عکس",
+    "premium.choice.plan": "📊 برنامه‌ی مطالعه و گزارش هفتگی",
+
     # Pop-up notices (shown briefly at the top of the chat)
     "toast.saved": "✅ ذخیره شد",
+    "toast.premium_thanks": "🙏 مرسی!",
+    "toast.removed": "برداشته شد",
     "toast.cleared": "✅ {count} پیام ذخیره‌شده پاک شد",
     "toast.nothing_to_clear": "چیزی برای پاک کردن نبود",
     "toast.coming_soon": "⏳ به‌زودی",

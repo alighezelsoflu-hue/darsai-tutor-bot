@@ -29,6 +29,22 @@ WEBHOOK_SECRET_TOKEN = _webhook_secret_token()
 # Product
 BOT_NAME = os.getenv("BOT_NAME", "DarsAI")
 
+
+def parse_admin_ids(text: str) -> frozenset:
+    """Telegram user ids separated by commas or spaces, e.g. "123456789, 987654321"."""
+    ids = set()
+    for part in re.split(r"[\s,]+", (text or "").strip()):
+        if not part:
+            continue
+        if not part.isdigit():
+            raise RuntimeError(f"ADMIN_USER_IDS must be Telegram user ids (numbers) separated by commas, not {part!r}.")
+        ids.add(int(part))
+    return frozenset(ids)
+
+
+# Who may use /stats. Empty means nobody.
+ADMIN_USER_IDS = parse_admin_ids(os.getenv("ADMIN_USER_IDS", ""))
+
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "5"))

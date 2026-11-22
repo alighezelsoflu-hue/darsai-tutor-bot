@@ -24,10 +24,8 @@ from typing import Dict, List, Optional, Tuple
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Message
 from telegram.error import BadRequest
 
-from config import FREE_DAILY_AI_LIMIT
 from modules.ai import AILimitReached, ask_ai_with_memory, log_ai_error
 from modules.common import LANGUAGES
-from modules.i18n import local_digits
 from modules.input_mode import change_input_mode, claim_last_result, get_input_mode, set_input_mode
 from modules.math.plot import create_plot, parse_plot_input
 from modules.math.prompts import math_tutor_prompt
@@ -36,6 +34,7 @@ from modules.math.topics import TOPIC_LEVEL
 
 from .core import Screen
 from .practice import formulas, owner_line, topic_name
+from .premium import limit_text, limit_view
 
 MODES = ("tutor", "solve", "plot")
 # After this long, typed text no longer goes to the tool the student opened.
@@ -77,7 +76,7 @@ def tool_keyboard(screen: Screen, mode: str) -> InlineKeyboardMarkup:
 def ai_error_text(screen: Screen, error: Exception) -> str:
     """Translated text for a failed tutor request. Details go to the log, never to the student."""
     if isinstance(error, AILimitReached):
-        return screen.t("ai.limit", limit=local_digits(screen.lang, FREE_DAILY_AI_LIMIT))
+        return limit_text(screen)
     log_ai_error(error)
     return screen.t("ai.unavailable")
 
@@ -169,6 +168,10 @@ async def ask_tutor(screen: Screen, topic: str, question: str, prompt_topic: str
             max_tokens=1000,
             temperature=0.22,
         )
+    except AILimitReached:
+        # With the Premium offer, for students who haven't said yet what they'd want from it.
+        await screen.send(*await limit_view(screen))
+        return None
     except Exception as error:
         await screen.send(ai_error_text(screen, error), menu_keyboard(screen))
         return None

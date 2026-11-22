@@ -14,7 +14,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import groups, home, learn, practice, progress, tools, typed
+from . import groups, home, learn, practice, premium, progress, tools, typed
 from .core import CALLBACK_PREFIX, Screen, unpack
 
 Route = Callable[[Screen, List[str]], Awaitable[None]]
@@ -29,6 +29,7 @@ ROUTES: Dict[str, Route] = {
     "solve": tools.solve_route,
     "plot": tools.plot_route,
     "prog": progress.progress_route,
+    "prem": premium.premium_route,
 }
 
 # Buttons from before the button interface, still in old messages (and "menu:math" from /aihelp).
@@ -40,6 +41,7 @@ OLD_BUTTONS: Dict[str, Tuple[str, ...]] = {
     "main:plot": ("plot",),
     "main:ai": ("tutor",),
     "main:progress": ("prog",),
+    "main:subscribe": ("prem",),
     "math_action:tutor": ("tutor",),
     "math_action:practice": ("prac",),
     "math_action:plot": ("plot",),
@@ -110,6 +112,7 @@ def register_ui_handlers(app: Application) -> None:
         group=-1,
     )
     app.add_handler(CommandHandler("start", home.start_command))
+    app.add_handler(CommandHandler("subscribe", premium.subscribe_command))
     app.add_handler(CallbackQueryHandler(callback_router, pattern=rf"^{CALLBACK_PREFIX}:"))
     app.add_handler(CallbackQueryHandler(old_button, pattern=OLD_BUTTON_PATTERN))
     app.add_handler(ChatMemberHandler(groups.bot_added, ChatMemberHandler.MY_CHAT_MEMBER))

@@ -6,6 +6,7 @@ import re
 import threading
 from typing import Callable, Dict, List, Optional, Tuple
 
+from modules.activity import add_practice_answer
 from modules.db import connection, db_configured
 from modules.student import get_student, set_level
 
@@ -170,7 +171,10 @@ def _copy_old_progress(cur) -> None:
 
 
 def record_answer(user_id: int, level: str, topic: str, difficulty: str, outcome: str) -> Tuple[float, float]:
-    """Update the student's mastery of a topic after a practice question. Returns (before, after)."""
+    """Update the student's mastery of a topic after a practice question. Returns (before, after).
+
+    It also counts the answer in today's activity (for /stats), in the same transaction.
+    """
     level = normalize_level(level)
     topic = normalize_topic(topic)
     difficulty = normalize_difficulty(difficulty, default="medium")
@@ -195,7 +199,9 @@ def record_answer(user_id: int, level: str, topic: str, difficulty: str, outcome
                 SET mastery=%s, correct_count=correct_count + %s, wrong_count=wrong_count + %s, updated_at=NOW()
                 WHERE user_id=%s AND level=%s AND topic=%s
             """, (after, correct, 1 - correct) + key)
+            add_practice_answer(user_id, cur)
         return before, after
+    add_practice_answer(user_id)
     with _FALLBACK_LOCK:
         entry = MASTERY_FALLBACK.setdefault((user_id, level, topic), {"mastery": 0.0, "correct": 0, "wrong": 0})
         before = entry["mastery"]
