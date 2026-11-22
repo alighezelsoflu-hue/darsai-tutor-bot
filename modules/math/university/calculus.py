@@ -4,18 +4,26 @@ from ..shared import poly_text
 
 TOPICS = {"calculus": "Limits, derivatives, and integrals"}
 
-
-def lesson(topic: str = "calculus") -> str:
-    return (
-        "University Calculus\n\n"
-        "Calculus studies change and accumulation.\n"
-        "Derivative = instantaneous rate of change.\n"
-        "Integral = accumulated area or total change.\n\n"
-        "Example: if f(x)=x², then f'(x)=2x."
-    )
-
-
 POWER_RULE = "(x^n)' = n·x^(n-1)"
+
+
+def lesson() -> dict:
+    """Intro blocks and a worked example, as i18n keys and formula lines (see practice() for the step format)."""
+    return {
+        "level": "university",
+        "topic": "calculus",
+        "intro": [
+            ["lesson.calculus.idea", {}, ""],
+            ["step.power_rule", {}, POWER_RULE],
+        ],
+        "example": {
+            "prompt": "derivative",
+            "formula": ["f(x) = 3x^2 + 5x - 4", "f'(x) = ?"],
+            "steps": [
+                ["each_term", {}, "f'(x) = 6x + 5"],
+            ],
+        },
+    }
 
 
 def practice(difficulty: str = "medium") -> dict:

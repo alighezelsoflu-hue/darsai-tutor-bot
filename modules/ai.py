@@ -317,6 +317,11 @@ async def ask_ai_with_memory(
     return answer
 
 
+def log_ai_error(error: Exception) -> None:
+    """Log a failed AI request. A provider error is expected (no traceback); anything else is a bug."""
+    logger.error("AI request failed: %s", error, exc_info=None if isinstance(error, AIProviderError) else error)
+
+
 def ai_error_message(error: Exception) -> str:
     """User-facing text for a failed AI request. Details go to the log, not to the student."""
     if isinstance(error, AILimitReached):
@@ -325,7 +330,7 @@ def ai_error_message(error: Exception) -> str:
             "The limit resets at 00:00 UTC.\n\n"
             "You can still use /lesson, /practice, /solve and /plot."
         )
-    logger.error("AI request failed: %s", error, exc_info=not isinstance(error, AIProviderError))
+    log_ai_error(error)
     return "The AI tutor is not available right now. Please try again in a few minutes."
 
 

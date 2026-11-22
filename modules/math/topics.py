@@ -13,6 +13,8 @@ from .pre_college import precalculus as pre_calculus
 from .shared import normalize_topic
 from .university import calculus as uni_calculus
 
+LEVEL_ORDER = ("middle_school", "high_school", "pre_college", "university")
+
 # The order here is the order of the topic buttons.
 TOPIC_MODULES: Dict[tuple, ModuleType] = {
     ("middle_school", "linear_equations"): middle_equations,

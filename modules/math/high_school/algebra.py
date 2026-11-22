@@ -5,17 +5,25 @@ from ..shared import number_step, poly_text
 TOPICS = {"algebra": "Algebra expressions and equations"}
 
 
-def lesson(topic: str = "algebra") -> str:
-    return (
-        "High School Algebra\n\n"
-        "Algebra uses symbols like x to represent unknown numbers.\n"
-        "Key skills: simplifying expressions, solving equations, factoring, and using functions.\n\n"
-        "Example:\n"
-        "3(x + 2) = 21\n"
-        "Distribute: 3x + 6 = 21\n"
-        "Subtract 6: 3x = 15\n"
-        "Divide by 3: x = 5"
-    )
+def lesson() -> dict:
+    """Intro blocks and a worked example, as i18n keys and formula lines (see practice() for the step format)."""
+    return {
+        "level": "high_school",
+        "topic": "algebra",
+        "intro": [
+            ["lesson.algebra.idea", {}, ""],
+            ["lesson.algebra.expand", {}, "a(x + b) = ax + ab"],
+        ],
+        "example": {
+            "prompt": "solve",
+            "formula": ["3(x + 2) = 21"],
+            "steps": [
+                ["divide", {"n": 3}, "x + 2 = 7"],
+                ["subtract", {"n": 2}, "x = 5"],
+                ["check", {}, "3(5 + 2) = 21"],
+            ],
+        },
+    }
 
 
 def practice(difficulty: str = "medium") -> dict:

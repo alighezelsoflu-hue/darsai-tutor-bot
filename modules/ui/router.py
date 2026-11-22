@@ -5,7 +5,7 @@ from typing import Awaitable, Callable, Dict, List
 from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from . import home, practice
+from . import home, learn, practice, progress, tools, typed
 from .core import CALLBACK_PREFIX, Screen, unpack
 
 Route = Callable[[Screen, List[str]], Awaitable[None]]
@@ -15,6 +15,11 @@ ROUTES: Dict[str, Route] = {
     "home": home.home_route,
     "set": home.settings_route,
     "prac": practice.practice_route,
+    "learn": learn.learn_route,
+    "tutor": tools.tutor_route,
+    "solve": tools.solve_route,
+    "plot": tools.plot_route,
+    "prog": progress.progress_route,
 }
 
 
@@ -45,6 +50,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 def register_ui_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("start", home.start_command))
     app.add_handler(CallbackQueryHandler(callback_router, pattern=rf"^{CALLBACK_PREFIX}:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, home.text_message))
-    # In groups the bot only sees replies to its own messages (privacy mode). Replies to a question are answers.
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS & filters.REPLY, practice.group_reply))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, typed.private_text))
+    # In groups the bot only sees replies to its own messages (privacy mode).
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS & filters.REPLY, typed.group_reply))

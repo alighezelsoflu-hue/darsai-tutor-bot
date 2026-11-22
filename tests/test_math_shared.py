@@ -12,6 +12,7 @@ from modules.math.pre_college import precalculus
 from modules.math.shared import (
     DIFFICULTIES,
     Expression,
+    SolveError,
     UnsupportedEquation,
     answers_match,
     get_mastery,
@@ -90,6 +91,15 @@ class SolverTests(unittest.TestCase):
             with self.subTest(equation=equation):
                 with self.assertRaises(ValueError):
                     solve_equation(equation)
+
+    def test_error_codes_for_translated_messages(self):
+        cases = {"x = x": "every_x", "x + 1 = x": "no_solution", "2x + 1": "needs_equals",
+                 "1 = 1": "no_x", "x = ": "empty_side", "x = 1 = 2": "two_equals"}
+        for equation, code in cases.items():
+            with self.subTest(equation=equation):
+                with self.assertRaises(SolveError) as caught:
+                    solve_equation(equation)
+                self.assertEqual(caught.exception.code, code)
 
 
 class AnswerMatchTests(unittest.TestCase):
@@ -216,6 +226,26 @@ class PracticeGeneratorTests(unittest.TestCase):
         self.assertEqual(set(MATH_MEMORY_TOPICS), {"math"} | set(TOPIC_LEVEL))
         for topic in TOPIC_LEVEL:
             self.assertIn(f"topic.{topic}", STRINGS["en"])
+
+
+class LessonTests(unittest.TestCase):
+    def test_lessons_use_known_strings_and_a_correct_example(self):
+        for (level, topic), module in TOPIC_MODULES.items():
+            with self.subTest(topic=topic):
+                lesson = module.lesson()
+                self.assertEqual((lesson["level"], lesson["topic"]), (level, topic))
+                self.assertEqual(json.loads(json.dumps(lesson)), lesson)
+                for key, params, _ in lesson["intro"]:
+                    self.assertIn(key, STRINGS["en"])
+                example = lesson["example"]
+                self.assertIn(f"prompt.{example['prompt']}", STRINGS["en"])
+                for key, params, _ in example["steps"]:
+                    self.assertIn(f"step.{key}", STRINGS["en"])
+                    self.assertTrue(all(isinstance(v, int) and v > 0 for v in params.values()))
+                if example["prompt"] == "solve":
+                    solutions = ",".join(str(v) for v in solve_equation(example["formula"][0])["solutions"])
+                    answer_step = next(f for k, _, f in reversed(example["steps"]) if k != "check")
+                    self.assertTrue(answers_match(answer_step, solutions), lesson)
 
 
 class MasteryTests(unittest.TestCase):

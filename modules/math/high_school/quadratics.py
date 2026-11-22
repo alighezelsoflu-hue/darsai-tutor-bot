@@ -6,19 +6,25 @@ from ..shared import poly_text
 TOPICS = {"quadratics": "Quadratic equations and parabolas"}
 
 
-def lesson(topic: str = "quadratics") -> str:
-    return (
-        "Quadratic equations\n\n"
-        "A quadratic equation has x² as the highest power. Standard form is ax² + bx + c = 0.\n\n"
-        "Main methods:\n"
-        "1. Factoring\n"
-        "2. Completing the square\n"
-        "3. Quadratic formula\n\n"
-        "Example:\n"
-        "x² - 5x + 6 = 0\n"
-        "Factor: (x - 2)(x - 3) = 0\n"
-        "So x = 2 or x = 3."
-    )
+def lesson() -> dict:
+    """Intro blocks and a worked example, as i18n keys and formula lines (see practice() for the step format)."""
+    return {
+        "level": "high_school",
+        "topic": "quadratics",
+        "intro": [
+            ["lesson.quadratics.idea", {}, "ax^2 + bx + c = 0"],
+            ["lesson.quadratics.factor", {}, ""],
+            ["lesson.quadratics.formula", {}, "x = (-b ± √(b^2 - 4ac)) / 2a"],
+        ],
+        "example": {
+            "prompt": "solve",
+            "formula": ["x^2 - 5x + 6 = 0"],
+            "steps": [
+                ["factor", {}, "(x - 2)(x - 3) = 0"],
+                ["zero_factors", {}, "x = 2, x = 3"],
+            ],
+        },
+    }
 
 
 def factor_text(root: int) -> str:

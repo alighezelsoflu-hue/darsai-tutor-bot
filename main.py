@@ -10,6 +10,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
 from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
 from modules.db import close_pool
+from modules.input_mode import init_input_db
 from modules.math.math import register_math_handlers
 from modules.math.shared import init_math_db
 from modules.i18n import t
@@ -170,6 +171,7 @@ def init_databases() -> None:
     init_ai_db()
     init_math_db()
     init_student_db()
+    init_input_db()
 
 
 @asynccontextmanager

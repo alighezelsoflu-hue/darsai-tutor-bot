@@ -9,13 +9,12 @@ from telegram.ext import ContextTypes
 from config import BOT_NAME
 from modules.ai import clear_history
 from modules.i18n import LANGUAGE_NAMES, UI_LANGUAGES, level_label, local_digits
+from modules.input_mode import clear_input_mode
 from modules.math.shared import get_user_level, set_user_level
+from modules.math.topics import LEVEL_ORDER
 from modules.student import set_language
 
-from . import practice
-from .core import MENU_LABELS, Screen, menu_reply_keyboard
-
-LEVEL_ORDER = ("middle_school", "high_school", "pre_college", "university")
+from .core import Screen, menu_reply_keyboard
 
 
 # ------------------------------------------------------------
@@ -45,6 +44,8 @@ async def home_view(screen: Screen, hint: bool = False) -> Tuple[str, InlineKeyb
 
 
 async def home_route(screen: Screen, args: List[str]) -> None:
+    # Leaving a tool: typed text no longer goes to the tutor, Solve or Plot.
+    await asyncio.to_thread(clear_input_mode, screen.chat_id, screen.user_id)
     text, markup = await home_view(screen)
     await screen.show(text, markup)
 
@@ -53,28 +54,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not update.effective_message or not update.effective_user or not update.effective_chat:
         return
     screen = await Screen.load(update, context)
+    await asyncio.to_thread(clear_input_mode, screen.chat_id, screen.user_id)
     if screen.private:
         # A separate message, because one message can't carry both the bottom Menu button and inline buttons.
         await update.effective_message.reply_text(
             screen.t("welcome", bot=BOT_NAME), reply_markup=menu_reply_keyboard(screen.lang)
         )
     text, markup = await home_view(screen)
-    await screen.send(text, markup)
-
-
-async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Typed text in a private chat: the Menu button, an answer to a practice question, or a nudge to the menu."""
-    message = update.effective_message
-    if not message or not update.effective_user or not update.effective_chat:
-        return
-    screen = await Screen.load(update, context)
-    pressed_menu = (message.text or "").strip() in MENU_LABELS
-    if not pressed_menu:
-        question = await practice.active_question(screen.chat_id, screen.user_id)
-        if question:
-            await practice.handle_answer(screen, question, message.text or "")
-            return
-    text, markup = await home_view(screen, hint=not pressed_menu)
     await screen.send(text, markup)
 
 

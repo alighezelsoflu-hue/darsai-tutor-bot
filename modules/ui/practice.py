@@ -8,7 +8,8 @@ Routes (after "prac" in the callback data):
     prac:n:<topic>[:<mode>]    a new question. Mode "a" (default) follows mastery; e, m, h pin a difficulty.
     prac:s:<question id>       show the solution. Counts as a missed question.
 
-In private chats any typed text is taken as the answer. In groups the student replies to the question.
+In private chats typed text is the answer (unless a tool such as Solve is open, see typed.py).
+In groups the student replies to the question.
 """
 
 import asyncio
@@ -16,10 +17,10 @@ import secrets
 import time
 from typing import Dict, List, Optional
 
-from telegram import InlineKeyboardMarkup, Update
-from telegram.ext import ContextTypes
+from telegram import InlineKeyboardMarkup
 
 from modules.i18n import is_rtl, level_label, local_digits
+from modules.input_mode import clear_input_mode
 from modules.math.shared import (
     DIFFICULTIES,
     answer_count,
@@ -210,6 +211,8 @@ async def new_question(screen: Screen, topic: str, mode: str = AUTO) -> None:
     # In groups only replies to these messages count as answers.
     question["message_ids"] = [message_id] if message_id is not None else []
     await asyncio.to_thread(save_active_question, screen.chat_id, screen.user_id, question)
+    # Typed text answers this question now, even if a tool (tutor, Solve, Plot) was open.
+    await asyncio.to_thread(clear_input_mode, screen.chat_id, screen.user_id)
 
 
 async def finish(screen: Screen, question: Dict, outcome: str, from_button: bool = False) -> None:
@@ -300,14 +303,3 @@ async def remember_message(screen: Screen, question: Dict, message_id: int) -> N
         # Show solution or another answer finished it a moment ago: this message's button is stale already.
         await screen.remove_buttons(message_id)
 
-
-async def group_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """A reply in a group. Taken as an answer only when it replies to the student's own question."""
-    message = update.effective_message
-    if not message or not message.reply_to_message or not update.effective_user or not update.effective_chat:
-        return
-    question = await active_question(update.effective_chat.id, update.effective_user.id)
-    if not question or message.reply_to_message.message_id not in question.get("message_ids", []):
-        return
-    screen = await Screen.load(update, context)
-    await handle_answer(screen, question, message.text or "")

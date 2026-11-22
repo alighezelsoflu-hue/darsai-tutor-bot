@@ -10,12 +10,12 @@ from telegram import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboard
 from telegram.ext import ExtBot
 
 import main
-from modules import ai, student
+from modules import ai, input_mode, student
 from modules.i18n import RTL_LANGUAGES, STRINGS, detect_language, local_digits, t
 from modules.math import math as math_commands
 from modules.math import shared
 from modules.math.shared import get_mastery, get_user_level, next_mastery, record_answer
-from modules.ui import core, home, practice, router
+from modules.ui import core, home, practice, router, typed
 
 BOT = main.telegram_app.bot
 STUDENT = 42
@@ -67,6 +67,8 @@ class TelegramMocks(unittest.TestCase):
         ai._MEMORY_FALLBACK.clear()
         shared.MASTERY_FALLBACK.clear()
         shared.ACTIVE_QUESTION_FALLBACK.clear()
+        input_mode._FALLBACK.clear()
+        ai._USAGE_FALLBACK.clear()
         # Sent messages get ids 77 (replies) and 78 (new messages). Edited ones keep 5.
         self.reply_text = self._patch(Message, "reply_text", SimpleNamespace(message_id=77))
         self.answer = self._patch(CallbackQuery, "answer")
@@ -74,6 +76,9 @@ class TelegramMocks(unittest.TestCase):
         self.edit_markup = self._patch(CallbackQuery, "edit_message_reply_markup")
         self.send_message = self._patch(ExtBot, "send_message", SimpleNamespace(message_id=78))
         self.bot_edit_markup = self._patch(ExtBot, "edit_message_reply_markup")
+        self.reply_photo = self._patch(Message, "reply_photo", SimpleNamespace(message_id=79))
+        self.send_photo = self._patch(ExtBot, "send_photo", SimpleNamespace(message_id=80))
+        self.chat_action = self._patch(ExtBot, "send_chat_action")
 
     def _patch(self, owner, name, returns=None):
         mock = AsyncMock(return_value=returns)
@@ -165,9 +170,9 @@ class StartTests(TelegramMocks):
         self.assertIn("👤 Sara", menu.args[0])
 
     def test_menu_button_and_other_text(self):
-        run(home.text_message, text_update("🏠 منو"))
+        run(typed.private_text, text_update("🏠 منو"))
         self.assertNotIn(t("en", "home.hint"), self.reply_text.call_args.args[0])
-        run(home.text_message, text_update("hello"))
+        run(typed.private_text, text_update("hello"))
         self.assertIn(t("en", "home.hint"), self.reply_text.call_args.args[0])
 
 
@@ -187,7 +192,7 @@ class ButtonTests(TelegramMocks):
         self.assertIn("someone else", self.answer.call_args.args[0])
 
     def test_unbuilt_screens_say_coming_soon(self):
-        self.press(f"d1:{STUDENT}:learn")
+        self.press(f"d1:{STUDENT}:guide")
         self.edit_text.assert_not_called()
         self.assertIn("Coming soon", self.answer.call_args.args[0])
 
@@ -233,7 +238,7 @@ class PracticeTests(TelegramMocks):
         run(router.callback_router, button_update(data, **kwargs))
 
     def type(self, text, **kwargs):
-        run(home.text_message, text_update(text, **kwargs))
+        run(typed.private_text, text_update(text, **kwargs))
 
     def question(self, chat_id=STUDENT):
         return shared.ACTIVE_QUESTION_FALLBACK.get((chat_id, STUDENT))
@@ -427,30 +432,30 @@ class PracticeTests(TelegramMocks):
         self.assertIn("Reply to this message", text)
 
         reply = text_update(q["answer"], chat_type="supergroup", reply_to=5)
-        handler = next(h for h in main.telegram_app.handlers[0] if getattr(h, "callback", None) is practice.group_reply)
+        handler = next(h for h in main.telegram_app.handlers[0] if getattr(h, "callback", None) is typed.group_reply)
         self.assertTrue(handler.check_update(reply))
         self.assertFalse(handler.check_update(text_update(q["answer"], chat_type="supergroup")))
 
         # A reply to another message, or by someone else, is not an answer.
-        run(practice.group_reply, text_update(q["answer"], chat_type="supergroup", reply_to=99))
-        run(practice.group_reply, text_update(q["answer"], chat_type="supergroup", user_id=7, reply_to=5))
+        run(typed.group_reply, text_update(q["answer"], chat_type="supergroup", reply_to=99))
+        run(typed.group_reply, text_update(q["answer"], chat_type="supergroup", user_id=7, reply_to=5))
         self.reply_text.assert_not_called()
 
-        run(practice.group_reply, reply)
+        run(typed.group_reply, reply)
         self.assertTrue(self.last_reply()[0].startswith("✅ Correct!"))
 
     def test_group_retry_message_also_takes_replies(self):
         self.press(f"d1:{STUDENT}:prac:n:algebra", chat_type="supergroup")
         q = self.question(self.GROUP)
-        run(practice.group_reply, text_update(self.wrong_answer(q), chat_type="supergroup", reply_to=5))
+        run(typed.group_reply, text_update(self.wrong_answer(q), chat_type="supergroup", reply_to=5))
         self.assertIn("Reply to this message with your new answer", self.last_reply()[0])
         self.assertEqual(self.question(self.GROUP)["message_ids"], [5, 77])
-        run(practice.group_reply, text_update(q["answer"], chat_type="supergroup", reply_to=77))
+        run(typed.group_reply, text_update(q["answer"], chat_type="supergroup", reply_to=77))
         self.assertTrue(self.last_reply()[0].startswith("✅ Correct on the second try!"))
 
     def test_mastery_follows_the_student_into_other_chats(self):
         self.press(f"d1:{STUDENT}:prac:n:algebra", chat_type="supergroup")
-        run(practice.group_reply, text_update(self.question(self.GROUP)["answer"], chat_type="supergroup", reply_to=5))
+        run(typed.group_reply, text_update(self.question(self.GROUP)["answer"], chat_type="supergroup", reply_to=5))
         self.press(f"d1:{STUDENT}:prac")
         self.assertIn("Equations with brackets: ▰▰▱▱▱▱▱▱▱▱ 18%", self.edit_text.call_args.args[0])
 
@@ -485,6 +490,262 @@ class PracticeTests(TelegramMocks):
         big = 10 ** 15
         core.pack(big, "prac", "n", "linear_equations", "a")
         core.pack(big, "prac", "s", "0123abcd")
+
+
+class StepFiveTests(TelegramMocks):
+    """Learn, Ask the tutor, Solve, Plot and My progress."""
+
+    GROUP = -1001
+
+    def setUp(self):
+        super().setUp()
+        self.provider = AsyncMock(return_value="Step 1: think. Step 2: solve.")
+        patcher = patch.object(ai, "call_ai_provider", self.provider)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def press(self, data, **kwargs):
+        run(router.callback_router, button_update(data, **kwargs))
+
+    def type(self, text, **kwargs):
+        run(typed.private_text, text_update(text, **kwargs))
+
+    def mode(self, chat_id=STUDENT):
+        return input_mode.get_input_mode(chat_id, STUDENT)
+
+    def shown(self):
+        return self.edit_text.call_args.args[0]
+
+    def last_reply(self):
+        call = self.reply_text.call_args
+        return call.args[0], self.markup(call)
+
+    def routes(self, markup):
+        return {b.text: b.callback_data.split(":", 2)[2] for b in self.buttons(markup)}
+
+    def test_main_menu_has_no_coming_soon_entries(self):
+        for route in ("learn", "prac", "tutor", "solve", "plot", "prog", "set"):
+            self.answer.reset_mock()
+            self.press(f"d1:{STUDENT}:{route}")
+            self.assertNotIn("Coming soon", str(self.answer.call_args))
+
+    # ---------------------------------------------------------------- Learn
+
+    def test_learn_topics_and_lesson(self):
+        self.press(f"d1:{STUDENT}:learn")
+        self.assertIn("Learn · High School", self.shown())
+        self.assertEqual(self.routes(self.markup(self.edit_text.call_args))["Quadratic equations"], "learn:quadratics")
+        self.press(f"d1:{STUDENT}:learn:quadratics")
+        text = self.shown()
+        for expected in ("📘 Quadratic equations", "ax^2 + bx + c = 0", "Example:", "x^2 - 5x + 6 = 0", "How to solve it", "x = 2, x = 3"):
+            self.assertIn(expected, text)
+        routes = self.routes(self.markup(self.edit_text.call_args))
+        self.assertEqual(routes["✍️ Practice this"], "prac:n:quadratics")
+        self.assertEqual(routes["🧑‍🏫 Ask the tutor"], "tutor:quadratics")
+        self.assertEqual(routes["📚 Lessons"], "learn")
+
+    def test_every_lesson_renders_in_both_languages(self):
+        for lang in ("en", "fa"):
+            student.set_language(STUDENT, lang)
+            for topic in shared_topics():
+                self.press(f"d1:{STUDENT}:learn:{topic}")
+                text = self.shown()
+                if lang == "fa":
+                    for line in text.splitlines():
+                        if re.search("[A-Za-z0-9]", line):
+                            self.assertTrue(line.startswith("\u200e"), f"{topic}: {line}")
+
+    def test_old_lesson_command_uses_the_lesson_screen(self):
+        run(math_commands.lesson_command, text_update("/lesson university calculus"), args=["university", "calculus"])
+        text, markup = self.last_reply()
+        self.assertIn("📘 Derivatives", text)
+        self.assertIn("f'(x) = 6x + 5", text)
+
+    # ---------------------------------------------------------------- Ask the tutor
+
+    def test_tutor_answers_typed_questions_and_keeps_listening(self):
+        self.press(f"d1:{STUDENT}:tutor")
+        self.assertIn("Type your math question", self.shown())
+        self.assertEqual(self.mode()["mode"], "tutor")
+        self.type("why is x^0 = 1?")
+        text, markup = self.last_reply()
+        self.assertTrue(text.startswith("Step 1: think."))
+        self.assertIn("Type another question", text)
+        self.assertEqual(self.routes(markup), {"🏠 Menu": "home"})
+        self.chat_action.assert_called()
+        self.assertEqual(ai.load_history(STUDENT, STUDENT, "math")[-2]["content"], "why is x^0 = 1?")
+        self.type("and x^1?")
+        self.assertEqual(self.provider.call_count, 2)
+        history = self.provider.call_args.args[0]
+        self.assertIn("why is x^0 = 1?", [m["content"] for m in history], "the tutor remembers the conversation")
+
+    def test_tutor_from_a_lesson_uses_that_topic_and_the_student_language(self):
+        student.set_language(STUDENT, "fa")
+        self.press(f"d1:{STUDENT}:tutor:quadratics")
+        self.assertIn("موضوع: معادله‌ی درجه دوم", self.shown())
+        self.type("دلتا چیه؟")
+        system = self.provider.call_args.args[0][0]["content"]
+        self.assertIn("Respond in Persian/Farsi", system)
+        self.assertIn("own line", system)
+        self.assertEqual(len(ai.load_history(STUDENT, STUDENT, "quadratics")), 2)
+
+    def test_tutor_limit_and_errors_are_translated_and_hide_details(self):
+        self.press(f"d1:{STUDENT}:tutor")
+        for _ in range(3):  # FREE_DAILY_AI_LIMIT=3 in tests
+            self.type("question")
+        self.type("one more")
+        self.assertIn("all 3 tutor messages", self.last_reply()[0])
+        ai._USAGE_FALLBACK.clear()
+        self.provider.side_effect = ai.AIProviderError("GROQ_API_KEY is missing")
+        with self.assertLogs("modules.ai", "ERROR"):
+            self.type("question")
+        text = self.last_reply()[0]
+        self.assertIn("isn't available", text)
+        self.assertNotIn("GROQ", text)
+
+    def test_long_tutor_answers_are_split(self):
+        self.provider.return_value = "word " * 1500
+        self.press(f"d1:{STUDENT}:tutor")
+        self.type("explain everything")
+        self.assertEqual(self.reply_text.call_count, 2)
+        first, last = self.reply_text.call_args_list
+        self.assertIsNone(self.markup(first))
+        self.assertIsNotNone(self.markup(last))
+
+    def test_menu_leaves_the_tool_and_practice_takes_over_again(self):
+        self.press(f"d1:{STUDENT}:prac:n:algebra")
+        question = shared.ACTIVE_QUESTION_FALLBACK[(STUDENT, STUDENT)]
+        self.press(f"d1:{STUDENT}:solve")
+        self.type("2x + 5 = 17")
+        self.assertIn("x = 6", self.last_reply()[0], "typed text goes to Solve while it is open")
+        self.type("🏠 Menu")
+        self.assertIsNone(self.mode())
+        self.type(question["answer"])
+        self.assertTrue(self.last_reply()[0].startswith("✅ Correct!"), "then it answers the practice question")
+
+    def test_a_new_practice_question_closes_the_tool(self):
+        self.press(f"d1:{STUDENT}:tutor")
+        self.press(f"d1:{STUDENT}:prac:n:algebra")
+        self.assertIsNone(self.mode())
+        self.press(f"d1:{STUDENT}:plot")
+        self.press(f"d1:{STUDENT}:home")
+        self.assertIsNone(self.mode())
+
+    def test_tool_mode_ends_after_a_day(self):
+        self.press(f"d1:{STUDENT}:solve")
+        input_mode._FALLBACK[(STUDENT, STUDENT)]["asked_at"] = time.time() - 25 * 3600
+        self.type("2x = 4")
+        self.assertIn(t("en", "home.hint"), self.last_reply()[0])
+
+    def test_groups_use_replies_for_tools(self):
+        self.press(f"d1:{STUDENT}:tutor", chat_type="supergroup")
+        self.assertIn("Reply to this message with your question", self.shown())
+        self.assertIn("👤 Sara", self.shown())
+        run(typed.group_reply, text_update("hi", chat_type="supergroup", reply_to=99))
+        run(typed.group_reply, text_update("hi", chat_type="supergroup", user_id=7, reply_to=5))
+        self.provider.assert_not_called()
+        run(typed.group_reply, text_update("what is a slope?", chat_type="supergroup", reply_to=5))
+        self.assertIn("Reply to this message to ask more", self.last_reply()[0])
+        self.assertEqual(self.mode(self.GROUP)["message_ids"], [5, 77])
+        run(typed.group_reply, text_update("and a gradient?", chat_type="supergroup", reply_to=77))
+        self.assertEqual(self.provider.call_count, 2)
+
+    # ---------------------------------------------------------------- Solve
+
+    def solve(self, equation):
+        self.type(equation)
+        return self.last_reply()
+
+    def test_solve_results(self):
+        self.press(f"d1:{STUDENT}:solve")
+        self.assertIn("x^2 - 5x + 6 = 0", self.shown())
+        text, markup = self.solve("2x + 5 = 17")
+        self.assertIn("✅ Solution:\nx = 6", text)
+        self.assertIn("Type another equation", text)
+        self.assertIn("🧑‍🏫 Explain step by step", self.routes(markup))
+        text, _ = self.solve("x^2 - 5x + 6 = 0")
+        self.assertIn("Δ = b^2 - 4ac = 1", text)
+        self.assertIn("✅ Solutions:\nx = 2, x = 3", text)
+        self.assertIn("No real solutions", self.solve("x^2 + 1 = 0")[0])
+        self.assertIn("3*4+2 = 14", self.solve("3*4+2")[0])
+        self.assertIn("true for every x", self.solve("x = x")[0])
+        text, markup = self.solve("x^3 = 8")
+        self.assertIn("only solve linear and quadratic", text)
+        self.assertIn("🧑‍🏫 Explain step by step", self.routes(markup))
+
+    def test_badly_written_equations_get_an_example_and_no_explain_button(self):
+        self.press(f"d1:{STUDENT}:solve")
+        for equation, expected in (("hello", "couldn't read"), ("x = 1 = 2", "single = sign"), ("2x + 1", "with an = sign")):
+            text, markup = self.solve(equation)
+            self.assertIn(expected, text)
+            self.assertEqual(self.routes(markup), {"🏠 Menu": "home"})
+
+    def test_explain_asks_the_tutor_once(self):
+        self.press(f"d1:{STUDENT}:solve")
+        _, markup = self.solve("x^2 - 5x + 6 = 0")
+        route = self.routes(markup)["🧑‍🏫 Explain step by step"]
+        self.press(f"d1:{STUDENT}:{route}")
+        prompt = self.provider.call_args.args[0][-1]["content"]
+        self.assertIn("x^2 - 5x + 6 = 0", prompt)
+        self.assertIn("Solutions: x = 2, x = 3", prompt)
+        self.edit_markup.assert_called_once()  # the Explain button is gone
+        sent = self.send_message.call_args
+        self.assertTrue(sent.args[1].startswith("Step 1: think."))
+        self.press(f"d1:{STUDENT}:{route}")
+        self.assertEqual(self.provider.call_count, 1)
+        self.assertIn("expired", self.answer.call_args.args[0])
+
+    def test_persian_solve(self):
+        student.set_language(STUDENT, "fa")
+        self.press(f"d1:{STUDENT}:solve")
+        text, _ = self.solve("x^2 - 5x + 6 = 0")
+        self.assertIn("دلتا:\n\u200eΔ = b^2 - 4ac = 1", text)
+        self.assertIn("✅ جواب‌ها:\n\u200ex = 2, x = 3", text)
+
+    # ---------------------------------------------------------------- Plot
+
+    def test_plot_sends_a_graph(self):
+        self.press(f"d1:{STUDENT}:plot")
+        self.assertIn("range -5 5", self.shown())
+        self.type("y = x^2 range -3 3")
+        call = self.reply_photo.call_args
+        self.assertIn("y = x^2", call.kwargs["caption"])
+        self.assertIn("Type another function", call.kwargs["caption"])
+        self.assertEqual(self.mode()["message_ids"], [5, 79])
+        self.type("y = hello(")
+        self.assertIn("couldn't draw that", self.last_reply()[0])
+        self.assertEqual(self.reply_photo.call_count, 1)
+
+    def test_menu_on_a_graph_sends_a_new_message(self):
+        self.press(f"d1:{STUDENT}:home", photo=True)
+        self.assertIn("What would you like to do?", self.send_message.call_args.args[1])
+
+    # ---------------------------------------------------------------- My progress
+
+    def test_progress_before_practising(self):
+        self.press(f"d1:{STUDENT}:prog")
+        self.assertIn("haven't practised yet", self.shown())
+        self.assertEqual(self.routes(self.markup(self.edit_text.call_args))["✍️ Practice"], "prac")
+
+    def test_progress_lists_every_level_and_suggests_the_weakest_topic(self):
+        record_answer(STUDENT, "high_school", "algebra", "hard", "first_try")
+        record_answer(STUDENT, "high_school", "algebra", "hard", "missed")
+        record_answer(STUDENT, "university", "calculus", "easy", "first_try")
+        self.press(f"d1:{STUDENT}:prog")
+        text = self.shown()
+        self.assertIn("🎓 High School", text)
+        self.assertIn("Equations with brackets: ▰▰▰▱▱▱▱▱▱▱ 26%\n✅ 1 · ❌ 1", text)
+        self.assertIn("Quadratic equations: not started yet", text)
+        self.assertIn("🎓 University\nDerivatives:", text)
+        self.assertNotIn("Middle School", text)
+        self.assertIn("Suggested next: Quadratic equations", text)
+        routes = self.routes(self.markup(self.edit_text.call_args))
+        self.assertEqual(routes["✍️ Practice: Quadratic equations"], "prac:n:quadratics")
+
+
+def shared_topics():
+    from modules.math.topics import TOPIC_LEVEL
+    return list(TOPIC_LEVEL)
 
 
 class CommandMenuTests(unittest.TestCase):

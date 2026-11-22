@@ -33,6 +33,10 @@ STRINGS = {
     "btn.easier": "🔽 Easier",
     "btn.harder": "🔼 Harder",
     "btn.topics": "📚 Topics",
+    "btn.practice_topic": "✍️ Practice this",
+    "btn.practice_named": "✍️ Practice: {topic}",
+    "btn.learn_topics": "📚 Lessons",
+    "btn.explain": "🧑‍🏫 Explain step by step",
 
     # Settings
     "settings.text": "⚙️ Settings\n\nLanguage: {language}\nLevel: {level}",
@@ -90,6 +94,63 @@ STRINGS = {
     "step.so": "So:",
     "step.each_term": "Differentiate each term. A number on its own becomes 0:",
 
+    # Learn
+    "learn.topics": "📘 Learn · {level}\n\nPick a topic:",
+    "learn.example": "📝 Example:",
+    "lesson.linear_equations.idea": "A linear equation has an unknown, x, with no powers. To solve it, get x alone on one side.",
+    "lesson.linear_equations.rule": "The golden rule: whatever you do to one side, do to the other side too.",
+    "lesson.algebra.idea": "When x is inside brackets, you can first divide both sides by the number in front, or expand the brackets.",
+    "lesson.algebra.expand": "To expand, multiply the number in front by every term inside:",
+    "lesson.quadratics.idea": "In a quadratic equation the highest power of x is 2. Its standard form is:",
+    "lesson.quadratics.factor": "If you can factor it, use this: when a product is zero, one of its factors must be zero.",
+    "lesson.quadratics.formula": "Otherwise use the quadratic formula:",
+    "lesson.precalculus.idea": "A function takes a number and gives back exactly one value. For example:",
+    "lesson.precalculus.value": "To find its value at a number, put the number in place of x and calculate.",
+    "lesson.calculus.idea": "The derivative shows how fast a function changes: the slope of its graph at each point.",
+    "step.check": "Check by putting the answer back in:",
+
+    # Ask the tutor
+    "tutor.text": "🧑‍🏫 Ask the tutor\n\nType your math question and I'll explain it step by step.",
+    "tutor.topic": "Topic: {topic}",
+    "tutor.reply_hint": "✏️ Reply to this message with your question.",
+    "tutor.more": "✏️ Type another question, or tap 🏠 Menu.",
+    "tutor.more_group": "✏️ Reply to this message to ask more.",
+    "ai.limit": "⏳ You've used all {limit} tutor messages for today. They come back at 00:00 UTC. Practice, Learn, Solve and Plot still work.",
+    "ai.unavailable": "😕 The tutor isn't available right now. Please try again in a few minutes.",
+
+    # Solve
+    "solve.text": "🧮 Solve\n\nType an equation and I'll solve it, for example:",
+    "solve.reply_hint": "✏️ Reply to this message with your equation.",
+    "solve.more": "✏️ Type another equation, or tap 🏠 Menu.",
+    "solve.more_group": "✏️ Reply to this message with another equation.",
+    "solve.result": "✅ Result:",
+    "solve.solution": "✅ Solution:",
+    "solve.solutions": "✅ Solutions:",
+    "solve.discriminant": "Discriminant:",
+    "solve.no_real": "❌ No real solutions, because the discriminant is negative.",
+    "solve.unsupported": "🤔 I can only solve linear and quadratic equations myself. For this one, tap 🧑‍🏫 Explain step by step and the tutor will help.",
+    "solve.unreadable": "🤔 I couldn't read that equation. Write it like this:",
+    "solve.error.two_equals": "🤔 Write one equation with a single = sign.",
+    "solve.error.needs_equals": "🤔 To find x, write an equation with an = sign, for example:",
+    "solve.error.empty_side": "🤔 Both sides of the equation need something on them.",
+    "solve.error.no_x": "🤔 There's no x to find. To calculate, leave out the = sign, for example:",
+    "solve.error.no_solution": "❌ This equation has no solution.",
+    "solve.error.every_x": "✅ This equation is true for every x.",
+
+    # Plot
+    "plot.text": "📈 Plot\n\nType a function and I'll draw its graph, for example:",
+    "plot.range": "To choose the x range, add it at the end:",
+    "plot.reply_hint": "✏️ Reply to this message with your function.",
+    "plot.more": "✏️ Type another function, or tap 🏠 Menu.",
+    "plot.more_group": "✏️ Reply to this message with another function.",
+    "plot.unreadable": "🤔 I couldn't draw that. Check the function and the range, for example:",
+
+    # My progress
+    "progress.title": "📊 My progress",
+    "progress.empty": "You haven't practised yet. Answer a few questions and your mastery shows up here.",
+    "progress.topic": "{topic}: {bar} {percent}%\n✅ {correct} · ❌ {wrong}",
+    "progress.suggest": "💡 Suggested next: {topic}",
+
     # Pop-up notices (shown briefly at the top of the chat)
     "toast.saved": "✅ Saved",
     "toast.cleared": "✅ Cleared {count} saved messages",
@@ -97,6 +158,7 @@ STRINGS = {
     "toast.coming_soon": "⏳ Coming soon",
     "toast.not_your_menu": "This menu belongs to someone else. Send /start to get your own.",
     "toast.question_over": "This question is already finished.",
+    "toast.expired": "This button has expired.",
 
     # Telegram's "/" command menu
     "command.start": "Open the main menu",

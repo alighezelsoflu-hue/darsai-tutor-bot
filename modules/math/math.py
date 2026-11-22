@@ -7,7 +7,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from config import BOT_NAME
 from modules.ai import ai_error_message, ask_ai_with_memory, clear_history
 from modules.common import LANGUAGES, extract_language, reply_long
-from modules.ui import practice
+from modules.ui import learn, practice
 from modules.ui.core import Screen
 from .plot import register_plot_handlers
 from .prompts import math_tutor_prompt
@@ -22,7 +22,7 @@ from .shared import (
     set_user_level,
     solve_equation,
 )
-from .topics import DEFAULT_TOPIC, MATH_MEMORY_TOPICS, TOPIC_MODULES, canonical_topic, get_topic_module
+from .topics import DEFAULT_TOPIC, MATH_MEMORY_TOPICS, TOPIC_MODULES, canonical_topic
 
 
 def math_main_keyboard() -> InlineKeyboardMarkup:
@@ -120,7 +120,8 @@ async def lesson_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     fallback = await asyncio.to_thread(get_user_level, update.effective_chat.id, update.effective_user.id)
     level, topic, _ = parse_level_topic_text(" ".join(context.args or []), fallback)
-    await update.message.reply_text(get_topic_module(level, topic).lesson(topic))
+    # The same lesson screen as 📘 Learn, in the student's language.
+    await learn.show_lesson(await Screen.load(update, context), topic)
 
 
 async def math_tutor_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

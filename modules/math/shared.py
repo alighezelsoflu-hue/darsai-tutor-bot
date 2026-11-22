@@ -454,6 +454,15 @@ class UnsupportedEquation(ValueError):
     pass
 
 
+class SolveError(ValueError):
+    """A badly written equation, or one without a single answer. code says which, for translated messages:
+    two_equals, needs_equals, empty_side, no_x, no_solution, every_x. str(error) stays the English text."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 UNSUPPORTED_EQUATION_MESSAGE = (
     "/solve handles linear and quadratic equations in x, like 2x + 5 = 17 or x^2 - 5x + 6 = 0.\n"
     "For other equations, ask the tutor: /math_tutor explain how to solve ..."
@@ -466,20 +475,20 @@ _SOLVE_CHECK_POINTS = (-3.5, -1.25, 0.5, 3.0, 4.75)
 def solve_equation(equation: str) -> Dict[str, object]:
     equation = (equation or "").strip()
     if equation.count("=") > 1:
-        raise ValueError("Please write one equation with a single '=' sign.")
+        raise SolveError("two_equals", "Please write one equation with a single '=' sign.")
 
     if "=" not in equation:
         expression = Expression(equation)
         if expression.uses_x:
-            raise ValueError("To solve for x, write an equation with '=', for example: /solve 2x + 5 = 17")
+            raise SolveError("needs_equals", "To solve for x, write an equation with '=', for example: /solve 2x + 5 = 17")
         return {"type": "arithmetic", "result": expression()}
 
     lhs, rhs = (side.strip() for side in equation.split("=", 1))
     if not lhs or not rhs:
-        raise ValueError("Both sides of the equation need an expression.")
+        raise SolveError("empty_side", "Both sides of the equation need an expression.")
     f = Expression(f"({lhs})-({rhs})")
     if not f.uses_x:
-        raise ValueError("There is no x to solve for. To calculate, leave out the '=' sign, for example: /solve 3*4+2")
+        raise SolveError("no_x", "There is no x to solve for. To calculate, leave out the '=' sign, for example: /solve 3*4+2")
 
     try:
         f0, f1, f2 = (f(point) for point in _SOLVE_SAMPLE_POINTS)
@@ -506,7 +515,9 @@ def solve_equation(equation: str) -> Dict[str, object]:
 
     if a == 0:
         if b == 0:
-            raise ValueError("This equation has no solution." if c != 0 else "This equation is true for every x.")
+            if c != 0:
+                raise SolveError("no_solution", "This equation has no solution.")
+            raise SolveError("every_x", "This equation is true for every x.")
         return {"type": "linear", "solutions": [-c / b], "a": 0.0, "b": b, "c": c}
 
     disc = b * b - 4 * a * c

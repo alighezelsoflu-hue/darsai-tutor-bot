@@ -5,13 +5,25 @@ from ..shared import poly_text
 TOPICS = {"precalculus": "Functions, trigonometry, sequences, and preparation for calculus"}
 
 
-def lesson(topic: str = "precalculus") -> str:
-    return (
-        "Pre-College Precalculus\n\n"
-        "Precalculus connects algebra, functions, graphs, and trigonometry.\n"
-        "It prepares you for limits, derivatives, and integrals.\n\n"
-        "Core idea: understand how a function behaves, not only how to calculate values."
-    )
+def lesson() -> dict:
+    """Intro blocks and a worked example, as i18n keys and formula lines (see practice() for the step format)."""
+    return {
+        "level": "pre_college",
+        "topic": "precalculus",
+        "intro": [
+            ["lesson.precalculus.idea", {}, "f(x) = 2x + 1"],
+            ["lesson.precalculus.value", {}, ""],
+        ],
+        "example": {
+            "prompt": "evaluate",
+            "formula": ["f(x) = x^2 - 3x", "f(4) = ?"],
+            "steps": [
+                ["substitute", {}, "f(4) = (4)^2 - 3(4)"],
+                ["terms", {}, "f(4) = 16 - 12"],
+                ["add_up", {}, "f(4) = 4"],
+            ],
+        },
+    }
 
 
 def substitution_text(terms, x: int) -> str:

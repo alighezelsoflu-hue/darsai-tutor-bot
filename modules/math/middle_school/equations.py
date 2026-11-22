@@ -5,16 +5,25 @@ from ..shared import number_step, poly_text
 TOPICS = {"linear_equations": "One-step and two-step linear equations"}
 
 
-def lesson(topic: str = "linear_equations") -> str:
-    return (
-        "Linear equations — Middle School\n\n"
-        "A linear equation has a variable like x. Your goal is to get x alone.\n\n"
-        "Example:\n"
-        "2x + 5 = 17\n"
-        "Subtract 5 from both sides: 2x = 12\n"
-        "Divide by 2: x = 6\n\n"
-        "Rule: whatever you do to one side, do to the other side."
-    )
+def lesson() -> dict:
+    """Intro blocks and a worked example, as i18n keys and formula lines (see practice() for the step format)."""
+    return {
+        "level": "middle_school",
+        "topic": "linear_equations",
+        "intro": [
+            ["lesson.linear_equations.idea", {}, ""],
+            ["lesson.linear_equations.rule", {}, ""],
+        ],
+        "example": {
+            "prompt": "solve",
+            "formula": ["2x + 5 = 17"],
+            "steps": [
+                ["subtract", {"n": 5}, "2x = 12"],
+                ["divide", {"n": 2}, "x = 6"],
+                ["check", {}, "2(6) + 5 = 17"],
+            ],
+        },
+    }
 
 
 def practice(difficulty: str = "medium") -> dict:
