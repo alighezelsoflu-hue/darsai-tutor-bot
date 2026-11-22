@@ -87,20 +87,26 @@ def main() -> None:
     from telegram import Update
 
     from main import init_databases, setup_bot_commands, setup_bot_descriptions, telegram_app
+    from modules.alerts import start_alerts, stop_alerts
     from modules.db import close_pool, db_configured
 
     async def post_init(app) -> None:
         await ensure_not_production(app.bot)
+        await start_alerts(app.bot)
         await asyncio.to_thread(init_databases)
         await setup_bot_commands()
         await setup_bot_descriptions()
         storage = "PostgreSQL (LOCAL_DATABASE_URL)" if db_configured() else "in-memory (lost on exit)"
         logger.info("Polling as @%s. Storage: %s. Press Ctrl+C to stop.", app.bot.username, storage)
 
+    async def post_stop(app) -> None:
+        await stop_alerts()  # alerts still being sent, while the bot can still send
+
     async def post_shutdown(app) -> None:
         await asyncio.to_thread(close_pool)
 
     telegram_app.post_init = post_init
+    telegram_app.post_stop = post_stop
     telegram_app.post_shutdown = post_shutdown
     try:
         telegram_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)

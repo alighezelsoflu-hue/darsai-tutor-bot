@@ -1,7 +1,35 @@
 import hashlib
 import os
 import re
-from typing import FrozenSet, Tuple
+from typing import FrozenSet, List, Tuple
+
+# Settings that had a value this code couldn't use, so the default was taken. Logged at startup (alerts.py),
+# because a typo in a setting must never stop the bot.
+SETTING_WARNINGS: List[str] = []
+
+
+def _int_env(name: str, default: int, minimum: int = 0) -> int:
+    raw = os.getenv(name, "").strip().strip("\"'")
+    if not raw:
+        return default
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        SETTING_WARNINGS.append(f"{name}={raw!r} isn't a whole number, so {default} is used.")
+        return default
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip().strip("\"'").lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    SETTING_WARNINGS.append(f"{name}={raw!r} isn't true or false, so {str(default).lower()} is used.")
+    return default
+
 
 # Telegram / hosting
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN")
@@ -49,8 +77,16 @@ def parse_admin_ids(text: str) -> Tuple[FrozenSet[int], Tuple[str, ...]]:
     return frozenset(ids), tuple(ignored)
 
 
-# Who may use /stats. Empty means nobody. modules/stats.py logs the parts it had to ignore.
+# Who may use /stats and the other admin commands, and who gets the error alerts. Empty means nobody.
+# modules/stats.py logs the parts it had to ignore.
 ADMIN_USER_IDS, ADMIN_USER_IDS_IGNORED = parse_admin_ids(os.getenv("ADMIN_USER_IDS", ""))
+
+# Error alerts (modules/alerts.py): every ERROR in the log goes to the admins on Telegram, the same kind of
+# error at most once per ALERT_REPEAT_MINUTES. Sentry is used too when SENTRY_DSN is set.
+ALERTS_TO_ADMINS = _bool_env("ALERTS_TO_ADMINS", True)
+ALERT_REPEAT_MINUTES = _int_env("ALERT_REPEAT_MINUTES", 30, minimum=1)
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "").strip() or "production"
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()

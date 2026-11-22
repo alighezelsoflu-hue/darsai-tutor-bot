@@ -24,6 +24,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, TypeHandler
 
 from config import ADMIN_USER_IDS, ADMIN_USER_IDS_IGNORED, BOT_NAME, FREE_DAILY_AI_LIMIT
 from modules import activity, ai, notify, premium, student
+from modules.admin import admin_command
 from modules.courses import COURSES
 from modules.db import connection, db_configured
 from modules.i18n import t
@@ -307,18 +308,11 @@ def format_stats(stats: Dict) -> str:
 # ------------------------------------------------------------
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message, user, chat = update.effective_message, update.effective_user, update.effective_chat
-    if not message or not user or not chat:
-        return
-    if user.id not in ADMIN_USER_IDS or chat.type != ChatType.PRIVATE:
-        # No reply, like any unknown command. The log line is how an admin finds their own user id.
-        logger.info(
-            "Ignored /stats from user id %s in a %s chat (it needs a private chat and a user id in ADMIN_USER_IDS).",
-            user.id, chat.type,
-        )
+    # Admins only, in a private chat. Anyone else gets no reply; the log shows their user id.
+    if not admin_command(update, "stats"):
         return
     stats = await asyncio.to_thread(collect_stats, activity.utc_today(), ADMIN_USER_IDS)
-    await message.reply_text(format_stats(stats))
+    await update.effective_message.reply_text(format_stats(stats))
 
 
 def log_admin_setting() -> None:

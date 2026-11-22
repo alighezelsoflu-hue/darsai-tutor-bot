@@ -3,7 +3,8 @@
 Every test starts by dropping all darsai_* tables, so TEST_DATABASE_URL must name a database whose name contains
 "test" (the tests refuse to run otherwise). Never point it at production.
 
-CI runs these against a PostgreSQL service (.github/workflows/tests.yml). Locally, with a throwaway server:
+CI runs these against a PostgreSQL service (.github/workflows/tests.yml). Locally, with a throwaway server
+created with `initdb -E UTF8 --locale=C` (the tests refuse a server that isn't UTF-8):
     TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/darsai_test python -m unittest tests.test_postgres
 """
 
@@ -50,6 +51,15 @@ class PostgresTests(TelegramMocks):
             raise RuntimeError(f"TEST_DATABASE_URL must name a test database (its name must contain 'test'), not {name!r}.")
         cls._database = patch.object(db, "DATABASE_URL", TEST_DATABASE_URL)
         cls._database.start()
+        (encoding,) = execute("SHOW server_encoding")[0]
+        encoding = encoding.decode() if isinstance(encoding, bytes) else encoding
+        if encoding.upper() not in ("UTF8", "UTF-8"):
+            db.close_pool()
+            cls._database.stop()
+            raise RuntimeError(
+                f"The test database's server encoding is {encoding}, not UTF8, so text comes back as bytes and every "
+                "test would fail. Create the server with: initdb -E UTF8 --locale=C …"
+            )
 
     @classmethod
     def tearDownClass(cls):
