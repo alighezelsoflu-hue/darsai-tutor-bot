@@ -58,6 +58,14 @@ def button_update(data: str, user_id: int = STUDENT, chat_type: str = "private",
     return Update.de_json({"update_id": 2, "callback_query": query}, BOT)
 
 
+def code_texts(call, text_key=None):
+    """The parts of a sent message that Telegram shows as code (one tap copies them)."""
+    text = call.args[0] if text_key is None else call.kwargs[text_key]
+    entities = call.kwargs.get("entities" if text_key is None else "caption_entities") or []
+    units = text.encode("utf-16-le")
+    return [units[2 * e.offset:2 * (e.offset + e.length)].decode("utf-16-le") for e in entities if e.type == "code"]
+
+
 def run(handler, update: Update, args=None):
     context = SimpleNamespace(bot=BOT, args=args or [])
     asyncio.run(handler(update, context))
@@ -98,6 +106,20 @@ class TelegramMocks(unittest.TestCase):
     @staticmethod
     def buttons(markup: InlineKeyboardMarkup):
         return [button for row in markup.inline_keyboard for button in row]
+
+
+class CodeEntityTests(unittest.TestCase):
+    def test_marked_text_becomes_code_entities_in_utf16_units(self):
+        text, entities = core.with_entities("📈 " + core.copyable("y = x^2") + "\n\u200e" + core.copyable("sin(x)"))
+        self.assertEqual(text, "📈 y = x^2\n\u200esin(x)")
+        self.assertEqual([(e.type, e.offset, e.length) for e in entities], [("code", 3, 7), ("code", 12, 6)])
+        self.assertEqual(core.with_entities("plain"), ("plain", None))
+
+    def test_marks_typed_by_a_student_cannot_break_entities(self):
+        text, entities = core.with_entities("= " + core.copyable("2x\ue001 + \ue000 1"))
+        self.assertEqual(text, "= 2x +  1")
+        self.assertEqual([(e.offset, e.length) for e in entities], [(2, 7)])
+        self.assertEqual(core.copyable("\ue000\ue001"), "")
 
 
 class CallbackDataTests(unittest.TestCase):
@@ -373,6 +395,18 @@ class PracticeTests(TelegramMocks):
         self.assertIn("couldn't read that", text)
         self.assertIn("2, -3", text)
         self.assertEqual(self.question()["attempts"], 0)
+
+    def test_answer_hints_are_copyable(self):
+        self.press(f"d1:{STUDENT}:prac:n:quadratics")
+        self.assertEqual(code_texts(self.edit_text.call_args), ["2, -3"])
+        self.type("I don't know")
+        self.assertEqual(code_texts(self.reply_text.call_args), ["2, -3"])
+
+    def test_roots_on_two_lines_are_one_answer(self):
+        self.press(f"d1:{STUDENT}:prac:n:quadratics")
+        r1, r2 = self.question()["answer"].split(",")
+        self.type(f"x = {r1}\nx = {r2}")
+        self.assertTrue(self.last_reply()[0].startswith("✅ Correct!"))
 
     def test_a_quadratic_answer_with_one_root_gets_the_two_answers_hint(self):
         self.press(f"d1:{STUDENT}:prac:n:quadratics")
@@ -682,7 +716,9 @@ class StepFiveTests(TelegramMocks):
         for equation, expected in (("hello", "couldn't read"), ("x = 1 = 2", "single = sign"), ("2x + 1", "with an = sign")):
             text, markup = self.solve(equation)
             self.assertIn(expected, text)
-            self.assertEqual(self.routes(markup), {"🏠 Menu": "home"})
+            routes = self.routes(markup)
+            self.assertNotIn("🧑‍🏫 Explain step by step", routes)
+            self.assertEqual(routes["🧮 2x + 5 = 17"], "solve:e:0")
 
     def test_explain_asks_the_tutor_once(self):
         self.press(f"d1:{STUDENT}:solve")
@@ -736,6 +772,60 @@ class StepFiveTests(TelegramMocks):
         for rule in ("No Markdown", "No LaTeX", "\\frac", "x²", "√"):
             self.assertIn(rule, system)
         self.assertIn("No LaTeX", ai.GENERAL_TUTOR_PROMPT)
+
+    def test_examples_are_copyable_code_and_one_tap_buttons(self):
+        self.press(f"d1:{STUDENT}:solve")
+        self.assertEqual(code_texts(self.edit_text.call_args), ["2x + 5 = 17", "x^2 - 5x + 6 = 0"])
+        routes = self.routes(self.markup(self.edit_text.call_args))
+        self.assertEqual(routes["🧮 2x + 5 = 17"], "solve:e:0")
+        self.assertEqual(routes["🧮 x² − 5x + 6 = 0"], "solve:e:1")
+        self.press(f"d1:{STUDENT}:plot")
+        self.assertEqual(code_texts(self.edit_text.call_args), ["y = x^2 - 4x + 3", "sin(x)", "y = x^2 range -5 5"])
+        routes = self.routes(self.markup(self.edit_text.call_args))
+        self.assertEqual(routes["📈 y = x² − 4x + 3"], "plot:e:0")
+        self.assertEqual(routes["📈 sin(x)"], "plot:e:1")
+
+    def test_persian_examples_copy_without_the_direction_mark(self):
+        student.set_language(STUDENT, "fa")
+        self.press(f"d1:{STUDENT}:solve")
+        self.assertIn("\u200e2x + 5 = 17", self.shown())
+        self.assertEqual(code_texts(self.edit_text.call_args), ["2x + 5 = 17", "x^2 - 5x + 6 = 0"])
+
+    def test_example_buttons_run_the_example(self):
+        self.press(f"d1:{STUDENT}:solve")
+        self.press(f"d1:{STUDENT}:solve:e:1")
+        self.assertIn("x = 2, x = 3", self.send_message.call_args.args[1])
+        self.assertIn("🧑‍🏫 Explain step by step", self.routes(self.markup(self.send_message.call_args)))
+        # Also after leaving the tool: the button opens it again.
+        self.press(f"d1:{STUDENT}:home")
+        self.press(f"d1:{STUDENT}:plot:e:1")
+        self.assertIn("y = sin(x)", self.send_photo.call_args.kwargs["caption"])
+        self.assertEqual(self.mode()["mode"], "plot")
+        self.assertEqual(self.mode()["message_ids"], [5, 80])
+        self.press(f"d1:{STUDENT}:plot:e:9")
+        self.assertIn("expired", self.answer.call_args.args[0])
+
+    def test_pasting_several_lines_asks_for_one_per_message(self):
+        self.press(f"d1:{STUDENT}:plot")
+        self.type(self.shown())  # the whole example message, pasted back
+        text, markup = self.last_reply()
+        self.assertTrue(text.startswith("✏️ Send one function per message"))
+        self.assertEqual(code_texts(self.reply_text.call_args), ["y = x^2 - 4x + 3", "sin(x)"])
+        self.assertIn("📈 sin(x)", self.routes(markup))
+        self.reply_photo.assert_not_called()
+        self.press(f"d1:{STUDENT}:solve")
+        self.type("2x + 5 = 17\nx^2 - 5x + 6 = 0")
+        self.assertTrue(self.last_reply()[0].startswith("✏️ Send one equation per message"))
+        self.type("2x + 5 = 17\n")  # a trailing new line is still one equation
+        self.assertIn("x = 6", self.last_reply()[0])
+
+    def test_a_formula_copied_from_a_persian_message_works(self):
+        self.press(f"d1:{STUDENT}:plot")
+        self.type("\u200ey = x^2 - 4x + 3")
+        self.assertIn("y = x^2 - 4x + 3", self.reply_photo.call_args.kwargs["caption"])
+        self.press(f"d1:{STUDENT}:solve")
+        self.type("\u200e2x + 5 = 17")
+        self.assertIn("x = 6", self.last_reply()[0])
 
     def test_persian_solve(self):
         student.set_language(STUDENT, "fa")

@@ -37,9 +37,9 @@ from modules.math.shared import (
 )
 from modules.math.topics import TOPIC_LEVEL, get_topic_module, topics_for_level
 
-from .core import Screen
+from .core import Screen, copyable
 
-LRM = "‎"
+LRM = "\u200e"  # left-to-right mark
 AUTO = "a"
 MODE_DIFFICULTY = {"e": "easy", "m": "medium", "h": "hard"}
 DIFFICULTY_MODE = {difficulty: mode for mode, difficulty in MODE_DIFFICULTY.items()}
@@ -58,10 +58,13 @@ HEADLINES = {
 # Text
 # ------------------------------------------------------------
 
-def formulas(screen: Screen, lines: List[str]) -> str:
-    """Formulas on their own lines. In right-to-left languages each line starts with a left-to-right mark."""
+def formulas(screen: Screen, lines: List[str], copy: bool = False) -> str:
+    """Formulas on their own lines. In right-to-left languages each line starts with a left-to-right mark.
+
+    copy=True sends each line as code, so one tap copies just that line (for examples students can send).
+    """
     prefix = LRM if is_rtl(screen.lang) else ""
-    return "\n".join(prefix + line for line in lines)
+    return "\n".join(prefix + (copyable(line) if copy else line) for line in lines)
 
 
 def topic_name(screen: Screen, topic: str) -> str:
@@ -96,7 +99,7 @@ def question_text(screen: Screen, question: Dict) -> str:
 
 
 def two_answers_hint(screen: Screen) -> str:
-    return screen.t("practice.two_answers") + "\n" + formulas(screen, [TWO_ANSWERS_EXAMPLE])
+    return screen.t("practice.two_answers") + "\n" + formulas(screen, [TWO_ANSWERS_EXAMPLE], copy=True)
 
 
 def answer_example(question: Dict) -> str:
@@ -273,7 +276,7 @@ async def active_question(chat_id: int, user_id: int) -> Optional[Dict]:
 async def handle_answer(screen: Screen, question: Dict, text: str) -> None:
     if not readable_answer(text):
         # Not an attempt: the student gets told how to write an answer and keeps both tries.
-        hint = screen.t("practice.unreadable") + "\n" + formulas(screen, [answer_example(question)])
+        hint = screen.t("practice.unreadable") + "\n" + formulas(screen, [answer_example(question)], copy=True)
         sent = await screen.send(hint, solution_keyboard(screen, question))
         await remember_message(screen, question, sent.message_id)
         return

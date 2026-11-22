@@ -129,6 +129,7 @@ STRINGS = {
     "solve.discriminant": "Discriminant:",
     "solve.no_real": "❌ No real solutions, because the discriminant is negative.",
     "solve.unsupported": "🤔 I can only solve linear and quadratic equations myself. For this one, tap 🧑‍🏫 Explain step by step and the tutor will help.",
+    "solve.one_per_message": "✏️ Send one equation per message, for example:",
     "solve.unreadable": "🤔 I couldn't read that equation. Write it like this:",
     "solve.error.two_equals": "🤔 Write one equation with a single = sign.",
     "solve.error.needs_equals": "🤔 To find x, write an equation with an = sign, for example:",
@@ -143,6 +144,7 @@ STRINGS = {
     "plot.reply_hint": "✏️ Reply to this message with your function.",
     "plot.more": "✏️ Type another function, or tap 🏠 Menu.",
     "plot.more_group": "✏️ Reply to this message with another function.",
+    "plot.one_per_message": "✏️ Send one function per message, for example:",
     "plot.unreadable": "🤔 I couldn't draw that. Check the function and the range, for example:",
 
     # My progress

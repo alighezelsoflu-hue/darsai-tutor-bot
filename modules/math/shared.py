@@ -335,7 +335,19 @@ _ALLOWED_UNARY = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 MAX_EXPRESSION_LENGTH = 200
 
 _DIGIT_MAP = {ord(ch): str(i) for digits in ("۰۱۲۳۴۵۶۷۸۹", "٠١٢٣٤٥٦٧٨٩") for i, ch in enumerate(digits)}
-_CHAR_MAP = {**_DIGIT_MAP, ord("×"): "*", ord("·"): "*", ord("÷"): "/", ord("−"): "-", ord("–"): "-", ord("٫"): "."}
+# Invisible direction and joining marks. A formula copied from a Persian message starts with a
+# left-to-right mark, so they are removed from everything students type.
+INVISIBLE_MARKS = "\u200b\u200c\u200d\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\ufeff"
+_INVISIBLE_MAP = {ord(ch): None for ch in INVISIBLE_MARKS}
+_CHAR_MAP = {
+    **_DIGIT_MAP, **_INVISIBLE_MAP,
+    ord("×"): "*", ord("·"): "*", ord("÷"): "/", ord("−"): "-", ord("–"): "-", ord("٫"): ".",
+}
+
+
+def strip_invisible(text: str) -> str:
+    """Remove invisible direction and joining marks (see INVISIBLE_MARKS)."""
+    return (text or "").translate(_INVISIBLE_MAP)
 _SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 _SUPERSCRIPT_RUN = re.compile("[⁰¹²³⁴⁵⁶⁷⁸⁹]+")
 _TOKEN_RE = re.compile(
@@ -535,8 +547,9 @@ def solve_equation(equation: str) -> Dict[str, object]:
 # Answer checking
 # ------------------------------------------------------------
 
-# Separators between several answers: "2, 3", "x = 2 or x = 3", "2 یا 3", "2، 3" (Persian comma).
-_ANSWER_SPLIT = re.compile(r"\s*(?:,|;|،|؛|&|\bor\b|\band\b|\bیا\b|\bو\b)\s*", re.IGNORECASE)
+# Separators between several answers: "2, 3", "x = 2 or x = 3", "2 یا 3", "2، 3" (Persian comma),
+# or one answer per line.
+_ANSWER_SPLIT = re.compile(r"\s*(?:,|;|،|؛|&|\n|\bor\b|\band\b|\bیا\b|\bو\b)\s*", re.IGNORECASE)
 _ANSWER_SAMPLE_POINTS = (-1.7, 0.6, 2.3)
 
 

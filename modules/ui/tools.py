@@ -6,17 +6,22 @@ go there until they press 🏠 Menu or start practising. In groups they reply to
 Routes:
     tutor[:<topic>]        ask the tutor (about a topic from Learn, or any math)
     solve                  type equations
+    solve:e:<index>        solve one of the examples (a one-tap button)
     solve:x:<result id>    the tutor explains a solved equation step by step
     plot                   type functions
+    plot:e:<index>         plot one of the examples
+
+Examples are shown as code (one tap copies a line) and as buttons that run them.
 """
 
 import asyncio
+import re
 import secrets
 import time
 from contextlib import suppress
 from typing import Dict, List, Optional, Tuple
 
-from telegram import InlineKeyboardMarkup, InputFile
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Message
 from telegram.error import BadRequest
 
 from config import FREE_DAILY_AI_LIMIT
@@ -26,7 +31,7 @@ from modules.i18n import local_digits
 from modules.input_mode import change_input_mode, claim_last_result, get_input_mode, set_input_mode
 from modules.math.plot import create_plot, parse_plot_input
 from modules.math.prompts import math_tutor_prompt
-from modules.math.shared import SolveError, UnsupportedEquation, get_user_level, nice, solve_equation
+from modules.math.shared import SolveError, UnsupportedEquation, get_user_level, nice, solve_equation, strip_invisible
 from modules.math.topics import TOPIC_LEVEL
 
 from .core import Screen
@@ -41,12 +46,32 @@ TUTOR_GENERAL_TOPIC = "math"
 SOLVE_EXAMPLES = ["2x + 5 = 17", "x^2 - 5x + 6 = 0"]
 PLOT_EXAMPLES = ["y = x^2 - 4x + 3", "sin(x)"]
 PLOT_RANGE_EXAMPLE = "y = x^2 range -5 5"
+EXAMPLES = {"solve": SOLVE_EXAMPLES, "plot": PLOT_EXAMPLES}
+EXAMPLE_ICONS = {"solve": "🧮", "plot": "📈"}
+_SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 # Solver problems that are about how the equation is written: no "Explain" button, but an example.
 SOLVE_ERROR_EXAMPLES = {"two_equals": "", "needs_equals": "2x + 5 = 17", "empty_side": "", "no_x": "3*4 + 2"}
 
 
 def menu_keyboard(screen: Screen) -> InlineKeyboardMarkup:
     return screen.keyboard([[screen.button(screen.t("btn.menu"), "home")]])
+
+
+def pretty_formula(text: str) -> str:
+    """How a formula reads best on a button: x^2 - 5x -> x² − 5x."""
+    return re.sub(r"\^(\d+)", lambda m: m.group(1).translate(_SUPERSCRIPT), text).replace(" - ", " − ")
+
+
+def example_buttons(screen: Screen, mode: str) -> List[InlineKeyboardButton]:
+    return [
+        screen.button(f"{EXAMPLE_ICONS[mode]} {pretty_formula(example)}", mode, "e", str(index))
+        for index, example in enumerate(EXAMPLES[mode])
+    ]
+
+
+def tool_keyboard(screen: Screen, mode: str) -> InlineKeyboardMarkup:
+    """One-tap examples, then Menu: for the tool's first screen and when the input couldn't be used."""
+    return screen.keyboard([example_buttons(screen, mode), [screen.button(screen.t("btn.menu"), "home")]])
 
 
 def ai_error_text(screen: Screen, error: Exception) -> str:
@@ -65,12 +90,17 @@ def more_hint(screen: Screen, mode: str) -> str:
 # Input mode
 # ------------------------------------------------------------
 
+def new_state(mode: str, topic: str = "") -> Dict:
+    return {"id": secrets.token_hex(4), "mode": mode, "topic": topic, "asked_at": time.time(), "message_ids": []}
+
+
 async def start_mode(screen: Screen, mode: str, text: str, topic: str = "") -> None:
     """Show the tool's first screen (in the pressed message) and send the student's typing there."""
     if not screen.private:
         text += "\n\n" + screen.t(f"{mode}.reply_hint")
-    state = {"id": secrets.token_hex(4), "mode": mode, "topic": topic, "asked_at": time.time()}
-    state["message_ids"] = [await screen.show(owner_line(screen) + text, menu_keyboard(screen))]
+    markup = tool_keyboard(screen, mode) if mode in EXAMPLES else menu_keyboard(screen)
+    state = new_state(mode, topic)
+    state["message_ids"] = [await screen.show(owner_line(screen) + text, markup)]
     await asyncio.to_thread(set_input_mode, screen.chat_id, screen.user_id, state)
 
 
@@ -92,8 +122,33 @@ async def remember(screen: Screen, state: Dict, message_id: int, **fields) -> No
 
 
 async def handle_input(screen: Screen, state: Dict, text: str) -> None:
+    mode = state["mode"]
+    text = strip_invisible(text).strip()
+    if mode in EXAMPLES and len([line for line in text.splitlines() if line.strip()]) > 1:
+        # E.g. the whole example message pasted back: say what went wrong instead of "couldn't read".
+        hint = screen.t(f"{mode}.one_per_message") + "\n" + formulas(screen, EXAMPLES[mode], copy=True)
+        sent = await screen.send(hint, tool_keyboard(screen, mode))
+        await remember(screen, state, sent.message_id)
+        return
     handlers = {"tutor": tutor_text, "solve": solve_text, "plot": plot_text}
-    await handlers[state["mode"]](screen, state, text.strip())
+    await handlers[mode](screen, state, text)
+
+
+async def run_example(screen: Screen, mode: str, index: str) -> None:
+    """A one-tap example button: the same as typing the example."""
+    examples = EXAMPLES[mode]
+    if not index.isdigit() or int(index) >= len(examples):
+        await screen.answer(screen.t("toast.expired"))
+        return
+    state = await current_mode(screen.chat_id, screen.user_id)
+    if not state or state["mode"] != mode:
+        # The student left the tool since: open it again, keeping the message the button is on.
+        state = new_state(mode)
+        pressed = screen.query.message if screen.query is not None else None
+        state["message_ids"] = [pressed.message_id] if isinstance(pressed, Message) else []
+        await asyncio.to_thread(set_input_mode, screen.chat_id, screen.user_id, state)
+    await screen.answer()
+    await handle_input(screen, state, examples[int(index)])
 
 
 # ------------------------------------------------------------
@@ -150,9 +205,9 @@ def solve_view(screen: Screen, equation: str) -> Tuple[str, Optional[str]]:
         if error.code not in SOLVE_ERROR_EXAMPLES:
             return screen.t(f"solve.error.{error.code}"), str(error)
         example = SOLVE_ERROR_EXAMPLES[error.code]
-        return screen.t(f"solve.error.{error.code}") + ("\n" + formulas(screen, [example]) if example else ""), None
+        return screen.t(f"solve.error.{error.code}") + ("\n" + formulas(screen, [example], copy=True) if example else ""), None
     except ValueError:
-        return screen.t("solve.unreadable") + "\n" + formulas(screen, SOLVE_EXAMPLES[:1]), None
+        return screen.t("solve.unreadable") + "\n" + formulas(screen, SOLVE_EXAMPLES[:1], copy=True), None
 
     if result["type"] == "arithmetic":
         value = nice(result["result"])
@@ -174,14 +229,16 @@ def solve_view(screen: Screen, equation: str) -> Tuple[str, Optional[str]]:
 async def solve_text(screen: Screen, state: Dict, text: str) -> None:
     body, report = solve_view(screen, text)
     s = screen
-    rows = [[s.button(s.t("btn.menu"), "home")]]
     fields = {}
     if report is not None:
         result_id = secrets.token_hex(4)
         # Only the newest result can be explained; older Explain buttons say they have expired.
         fields["last"] = {"id": result_id, "equation": text, "report": report}
-        rows.insert(0, [s.button(s.t("btn.explain"), "solve", "x", result_id)])
-    sent = await s.send(f"{body}\n\n{more_hint(s, 'solve')}", s.keyboard(rows))
+        markup = s.keyboard([[s.button(s.t("btn.explain"), "solve", "x", result_id)], [s.button(s.t("btn.menu"), "home")]])
+    else:
+        # Nothing to explain: the equation couldn't be used, so offer the examples.
+        markup = tool_keyboard(s, "solve")
+    sent = await s.send(f"{body}\n\n{more_hint(s, 'solve')}", markup)
     await remember(s, state, sent.message_id, **fields)
 
 
@@ -210,8 +267,10 @@ async def explain_solution(screen: Screen, result_id: str) -> None:
 async def solve_route(screen: Screen, args: List[str]) -> None:
     if len(args) > 1 and args[0] == "x":
         await explain_solution(screen, args[1])
-        return
-    await start_mode(screen, "solve", screen.t("solve.text") + "\n" + formulas(screen, SOLVE_EXAMPLES))
+    elif len(args) > 1 and args[0] == "e":
+        await run_example(screen, "solve", args[1])
+    else:
+        await start_mode(screen, "solve", screen.t("solve.text") + "\n" + formulas(screen, SOLVE_EXAMPLES, copy=True))
 
 
 # ------------------------------------------------------------
@@ -224,7 +283,8 @@ async def plot_text(screen: Screen, state: Dict, text: str) -> None:
         image = await asyncio.to_thread(create_plot, expression, xmin, xmax)
     except ValueError:
         examples = [PLOT_EXAMPLES[0], "y = sqrt(x) range 0 10"]
-        await screen.send(screen.t("plot.unreadable") + "\n" + formulas(screen, examples), menu_keyboard(screen))
+        sent = await screen.send(screen.t("plot.unreadable") + "\n" + formulas(screen, examples, copy=True), tool_keyboard(screen, "plot"))
+        await remember(screen, state, sent.message_id)
         return
     caption = formulas(screen, [f"y = {expression}"]) + "\n\n" + more_hint(screen, "plot")
     sent = await screen.send_photo(InputFile(image, filename="plot.png"), caption, menu_keyboard(screen))
@@ -232,8 +292,11 @@ async def plot_text(screen: Screen, state: Dict, text: str) -> None:
 
 
 async def plot_route(screen: Screen, args: List[str]) -> None:
+    if len(args) > 1 and args[0] == "e":
+        await run_example(screen, "plot", args[1])
+        return
     text = (
-        screen.t("plot.text") + "\n" + formulas(screen, PLOT_EXAMPLES) + "\n\n"
-        + screen.t("plot.range") + "\n" + formulas(screen, [PLOT_RANGE_EXAMPLE])
+        screen.t("plot.text") + "\n" + formulas(screen, PLOT_EXAMPLES, copy=True) + "\n\n"
+        + screen.t("plot.range") + "\n" + formulas(screen, [PLOT_RANGE_EXAMPLE], copy=True)
     )
     await start_mode(screen, "plot", text)

@@ -16,6 +16,7 @@ from telegram import (
     InlineKeyboardMarkup,
     KeyboardButton,
     Message,
+    MessageEntity,
     ReplyKeyboardMarkup,
     Update,
 )
@@ -31,6 +32,39 @@ logger = logging.getLogger(__name__)
 
 CALLBACK_PREFIX = "d1"
 MAX_CALLBACK_BYTES = 64
+
+# Text between these two private-use characters is sent as code (monospace). Telegram copies code with
+# one tap, so examples are copyable on their own. Messages stay plain text: no parse_mode, nothing to escape.
+CODE_OPEN, CODE_CLOSE = "\ue000", "\ue001"
+
+
+def copyable(text: str) -> str:
+    """Mark text to be sent as code. Any marks inside it (e.g. typed by a student) are dropped."""
+    clean = text.replace(CODE_OPEN, "").replace(CODE_CLOSE, "")
+    return f"{CODE_OPEN}{clean}{CODE_CLOSE}" if clean else ""
+
+
+def with_entities(text: str) -> Tuple[str, Optional[List[MessageEntity]]]:
+    """Remove the code marks and return the text with Telegram code entities for the marked parts.
+
+    Entity offsets and lengths count UTF-16 code units, as Telegram does (an emoji counts 2).
+    """
+    if CODE_OPEN not in text and CODE_CLOSE not in text:
+        return text, None
+    parts: List[str] = []
+    entities: List[MessageEntity] = []
+    offset, start = 0, None
+    for char in text:
+        if char == CODE_OPEN:
+            start = offset
+        elif char == CODE_CLOSE:
+            if start is not None and offset > start:
+                entities.append(MessageEntity(MessageEntity.CODE, start, offset - start))
+            start = None
+        else:
+            parts.append(char)
+            offset += len(char.encode("utf-16-le")) // 2
+    return "".join(parts), entities or None
 
 
 def pack(owner_id: int, *route: str) -> str:
@@ -113,9 +147,12 @@ class Screen:
 
     async def send(self, text: str, markup=None):
         """Send a new message. Replies to the student's message when there is one."""
+        text, entities = with_entities(text)
         if self.query is None and self.update.effective_message is not None:
-            return await self.update.effective_message.reply_text(text, reply_markup=markup)
-        return await self.context.bot.send_message(self.chat_id, text, reply_markup=markup, message_thread_id=self.thread_id)
+            return await self.update.effective_message.reply_text(text, reply_markup=markup, entities=entities)
+        return await self.context.bot.send_message(
+            self.chat_id, text, reply_markup=markup, message_thread_id=self.thread_id, entities=entities
+        )
 
     async def send_long(self, text: str, markup=None) -> int:
         """Send text of any length (AI answers), split into Telegram-sized messages. The buttons go on the last one.
@@ -129,10 +166,14 @@ class Screen:
 
     async def send_photo(self, photo, caption: str, markup=None):
         """Send a photo. Replies to the student's message when there is one."""
+        caption, entities = with_entities(caption)
         if self.query is None and self.update.effective_message is not None:
-            return await self.update.effective_message.reply_photo(photo, caption=caption, reply_markup=markup)
+            return await self.update.effective_message.reply_photo(
+                photo, caption=caption, reply_markup=markup, caption_entities=entities
+            )
         return await self.context.bot.send_photo(
-            self.chat_id, photo, caption=caption, reply_markup=markup, message_thread_id=self.thread_id
+            self.chat_id, photo, caption=caption, reply_markup=markup, message_thread_id=self.thread_id,
+            caption_entities=entities,
         )
 
     async def typing(self) -> None:
@@ -156,7 +197,8 @@ class Screen:
         message = self.query.message if self.query is not None else None
         if isinstance(message, Message) and message.text is not None:
             try:
-                await self.query.edit_message_text(text, reply_markup=markup)
+                plain, entities = with_entities(text)
+                await self.query.edit_message_text(plain, reply_markup=markup, entities=entities)
                 return message.message_id
             except BadRequest as error:
                 if "not modified" in str(error).lower():

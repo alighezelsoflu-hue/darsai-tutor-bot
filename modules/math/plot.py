@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 from telegram import InputFile, Update
 from telegram.ext import CommandHandler, ContextTypes, Application
 
-from .shared import Expression, nice
+from .shared import Expression, nice, strip_invisible
 
 MAX_PLOT_POINTS = 900
 _FUNCTION_PREFIX = re.compile(r"^\s*(?:y|f\s*\(\s*x\s*\))\s*=\s*", flags=re.I)
@@ -24,7 +24,7 @@ def load_font(size: int = 20):
 
 
 def parse_plot_input(text: str) -> Tuple[str, float, float]:
-    text = text.strip()
+    text = strip_invisible(text).strip()
     if not text:
         raise ValueError("Please provide a function, e.g. /plot y=x^2 range -5 5")
     xmin, xmax = -10.0, 10.0
