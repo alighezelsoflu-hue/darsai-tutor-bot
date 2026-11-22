@@ -29,8 +29,9 @@ plan has **1 manual snapshot**. Anything older than the window can only come bac
 
 ## Security settings
 
-- [ ] **Turn off Neon's Data API** (and Neon Auth, if nothing else uses it) on the production project. The bot
-  doesn't use it: it connects directly with `DATABASE_URL`. An unused way into the database should be off.
+- [x] **Turn off Neon's Data API** on the production project (done 2026-11-22). The bot doesn't use it: it
+  connects directly with `DATABASE_URL`. An unused way into the database should be off. Keep it off, and
+  turn off Neon Auth too if nothing else uses it.
 - [ ] **Two-factor authentication** on every account that can reach the bot or its data: GitHub, Render, Neon,
   Groq, Sentry (if used) and the Telegram account that owns the bot in @BotFather.
 - [ ] Secrets live only in Render's Environment settings (and `.env.local` for the test bot), never in the
