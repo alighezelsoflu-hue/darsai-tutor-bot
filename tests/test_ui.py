@@ -1057,12 +1057,13 @@ def shared_topics():
 
 
 class CommandMenuTests(unittest.TestCase):
-    def test_only_start_and_help(self):
+    def test_start_help_and_privacy(self):
         with patch.object(ExtBot, "set_my_commands", AsyncMock()) as set_commands:
             asyncio.run(main.setup_bot_commands())
         self.assertEqual(set_commands.call_count, 2)
         for call in set_commands.call_args_list:
-            self.assertEqual([c.command for c in call.args[0]], ["start", "help"])
+            # /privacy must be in the menu: Telegram's "Privacy Policy" in the bot's profile opens it only then.
+            self.assertEqual([c.command for c in call.args[0]], ["start", "help", "privacy"])
         persian = next(c for c in set_commands.call_args_list if c.kwargs["language_code"] == "fa")
         self.assertTrue(re.search("[؀-ۿ]", persian.args[0][0].description))
 

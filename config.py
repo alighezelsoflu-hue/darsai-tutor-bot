@@ -55,6 +55,10 @@ def _webhook_secret_token() -> str:
 
 WEBHOOK_SECRET_TOKEN = _webhook_secret_token()
 
+# Privacy: how students can reach whoever runs the bot, shown at the end of the privacy policy (/privacy).
+# Empty: the line is left out.
+PRIVACY_CONTACT = os.getenv("PRIVACY_CONTACT", "").strip()
+
 # Product
 BOT_NAME = os.getenv("BOT_NAME", "DarsAI")
 

@@ -20,7 +20,7 @@ import psycopg
 
 import config
 import main
-from modules import activity, ai, db, input_mode, migrations, notify, premium, stats, student
+from modules import activity, ai, db, input_mode, migrations, notify, premium, privacy, stats, student
 from modules.db import connection
 from modules.i18n import t
 from modules.math import shared
@@ -367,6 +367,62 @@ class PostgresTests(TelegramMocks):
         text = stats.format_stats(numbers)
         self.assertIn("insta: 1 · 1 · 1", text)
         self.assertIn("Admins (ADMIN_USER_IDS) are left out of every number.", text)
+
+    # ---------------------------------------------------------------- 🗑 Delete my data
+
+    def fill(self, user_id):
+        activity.mark_active(user_id, source="insta")
+        student.set_language(user_id, "fa")
+        student.finish_setup(user_id, 1)
+        shared.set_user_level(user_id, user_id, "university")
+        shared.record_answer(user_id, "university", "calculus", "easy", "first_try")
+        shared.save_active_question(user_id, user_id, {"id": "q", "message_ids": []})
+        shared.save_active_question(-100, user_id, {"id": "g", "message_ids": []})  # in a group
+        input_mode.set_input_mode(user_id, user_id, {"id": "m", "mode": "solve"})
+        ai.reserve_ai_message(user_id)
+        ai.save_exchange(user_id, user_id, "math", "my question", "an answer")
+        ai.save_exchange(-100, user_id, "math", "in the group", "an answer")
+        premium.set_choice(user_id, "photo", True, "menu", "fa")
+        notify.add_notice(user_id, "biology", "fa")
+        execute("INSERT INTO darsai_user_profile (chat_id, user_id, level) VALUES (%s, %s, 'high_school')", (user_id, user_id))
+        execute("INSERT INTO darsai_math_progress VALUES (%s, %s, 'high_school', 'algebra', 1, 1)", (user_id, user_id))
+
+    def rows_of(self, user_id):
+        tables = sorted(self.tables() - {"darsai_schema_version"}) + ["darsai_math_progress"]
+        return {table: execute(f"SELECT COUNT(*) FROM {table} WHERE user_id = %s", (user_id,))[0][0] for table in tables}
+
+    def test_delete_my_data_empties_every_table_for_the_student_only(self):
+        execute("""CREATE TABLE darsai_math_progress (chat_id BIGINT, user_id BIGINT, level TEXT, topic TEXT,
+                   correct_count INTEGER, wrong_count INTEGER)""")
+        main.init_databases()
+        with connection() as conn, conn.cursor() as cur:
+            self.assertEqual(set(privacy.personal_tables(cur)), (ALL_TABLES - {"darsai_schema_version"}) | {"darsai_math_progress"})
+        self.fill(5)
+        self.fill(6)
+        self.assertTrue(all(self.rows_of(5).values()), self.rows_of(5))
+        deleted = privacy.delete_student(5)
+        self.assertEqual(deleted["darsai_ai_messages"], 4)
+        self.assertEqual(deleted["darsai_active_question"], 2)
+        self.assertEqual(set(self.rows_of(5).values()), {0})
+        self.assertTrue(all(self.rows_of(6).values()), "the other student keeps everything")
+        self.assertEqual(student.get_student(5), {"language": None, "level": None, "setup_done": False, "keyboard_version": 0})
+        # Their old progress can't come back: migration 1 never runs again, and its table is emptied too.
+        main.init_databases()
+        self.assertEqual(shared.get_mastery(5), {})
+
+    def test_delete_my_data_is_all_or_nothing(self):
+        main.init_databases()
+        activity.mark_active(5)
+        student.set_language(5, "fa")
+        real = privacy.personal_tables
+
+        def with_a_broken_table(cur):
+            return real(cur) + ["darsai_does_not_exist"]
+
+        with patch.object(privacy, "personal_tables", with_a_broken_table), self.assertRaises(psycopg.errors.UndefinedTable):
+            privacy.delete_student(5)
+        self.assertEqual(student.get_student(5)["language"], "fa", "rolled back")
+        self.assertEqual(execute("SELECT COUNT(*) FROM darsai_first_seen WHERE user_id = 5"), [(1,)])
 
     # ---------------------------------------------------------------- screens with the database
 

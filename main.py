@@ -60,7 +60,8 @@ def help_text() -> str:
         "/plot y=x^2 range -5 5\n"
         "/progress - show progress\n"
         "/aihelp - AI tools\n"
-        "/newchat - clear general AI chat memory\n\n"
+        "/newchat - clear general AI chat memory\n"
+        "/privacy - what the bot saves about you, and deleting it\n\n"
         "Tutor languages:\n"
         "/math_tutor fa high_school quadratics explain quadratic formula"
     )
@@ -85,10 +86,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def setup_bot_commands() -> None:
-    """Telegram's "/" menu shows only /start and /help. Every other command still works when typed."""
+    """Telegram's "/" menu shows /start, /help and /privacy. Every other command still works when typed.
+
+    /privacy must be in the menu: Telegram's "Privacy Policy" in the bot's profile opens it only then.
+    """
     for language_code in (None, "fa"):
         lang = language_code or "en"
-        commands = [BotCommand("start", t(lang, "command.start")), BotCommand("help", t(lang, "command.help"))]
+        commands = [
+            BotCommand("start", t(lang, "command.start")),
+            BotCommand("help", t(lang, "command.help")),
+            BotCommand("privacy", t(lang, "command.privacy")),
+        ]
         await telegram_app.bot.set_my_commands(commands, language_code=language_code)
 
 

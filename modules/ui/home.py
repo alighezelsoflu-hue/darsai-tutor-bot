@@ -90,6 +90,7 @@ async def show_settings(screen: Screen) -> None:
     markup = s.keyboard([
         [s.button(s.t("btn.language"), "set", "lang"), s.button(s.t("btn.level"), "set", "lvl")],
         [s.button(s.t("btn.clear_memory"), "set", "clr")],
+        [s.button(s.t("btn.privacy"), "priv")],
         [s.button(s.t("btn.menu"), "home")],
     ])
     await s.show(text, markup)
