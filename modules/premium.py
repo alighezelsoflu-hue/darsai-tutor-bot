@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple
 from modules.db import connection, db_configured
 
 # In the order the buttons show them.
-CHOICES = ("konkur", "msgs", "photo", "plan")
+CHOICES = ("konkur", "msgs", "photo", "plan", "ai")
 SOURCES = ("menu", "limit")
 
 # In-memory fallback, used only when DATABASE_URL is not set: {(user_id, choice): {"source", "language", "created_at"}}

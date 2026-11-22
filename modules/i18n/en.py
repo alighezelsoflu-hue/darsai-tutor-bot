@@ -170,6 +170,7 @@ STRINGS = {
     "premium.choice.msgs": "🧑‍🏫 More tutor messages",
     "premium.choice.photo": "📷 Photo solving",
     "premium.choice.plan": "📊 Study plan and weekly report",
+    "premium.choice.ai": "🤖 AI course",
 
     # Pop-up notices (shown briefly at the top of the chat)
     "toast.saved": "✅ Saved",

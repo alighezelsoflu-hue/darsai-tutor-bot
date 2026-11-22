@@ -1,6 +1,7 @@
 import hashlib
 import os
 import re
+from typing import FrozenSet, Tuple
 
 # Telegram / hosting
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN")
@@ -30,20 +31,26 @@ WEBHOOK_SECRET_TOKEN = _webhook_secret_token()
 BOT_NAME = os.getenv("BOT_NAME", "DarsAI")
 
 
-def parse_admin_ids(text: str) -> frozenset:
-    """Telegram user ids separated by commas or spaces, e.g. "123456789, 987654321"."""
-    ids = set()
-    for part in re.split(r"[\s,]+", (text or "").strip()):
+def parse_admin_ids(text: str) -> Tuple[FrozenSet[int], Tuple[str, ...]]:
+    """Telegram user ids separated by commas or spaces, e.g. "123456789, 987654321".
+
+    Never fails: quotes around a value are removed, and anything that still isn't a number is returned
+    in the second item, so startup can log a warning instead of stopping the bot.
+    """
+    ids, ignored = set(), []
+    for part in re.split(r"[\s,;]+", text or ""):
+        part = part.strip("\"'`")
         if not part:
             continue
-        if not part.isdigit():
-            raise RuntimeError(f"ADMIN_USER_IDS must be Telegram user ids (numbers) separated by commas, not {part!r}.")
-        ids.add(int(part))
-    return frozenset(ids)
+        if part.isdecimal():
+            ids.add(int(part))
+        else:
+            ignored.append(part)
+    return frozenset(ids), tuple(ignored)
 
 
-# Who may use /stats. Empty means nobody.
-ADMIN_USER_IDS = parse_admin_ids(os.getenv("ADMIN_USER_IDS", ""))
+# Who may use /stats. Empty means nobody. modules/stats.py logs the parts it had to ignore.
+ADMIN_USER_IDS, ADMIN_USER_IDS_IGNORED = parse_admin_ids(os.getenv("ADMIN_USER_IDS", ""))
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()

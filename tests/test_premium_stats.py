@@ -247,10 +247,17 @@ class StatsTests(TelegramMocks):
         return self.reply_text.call_args.args[0] if self.reply_text.called else None
 
     def test_admin_ids_from_the_environment(self):
-        self.assertEqual(config.parse_admin_ids("123, 456 789"), frozenset({123, 456, 789}))
-        self.assertEqual(config.parse_admin_ids(""), frozenset())
-        with self.assertRaises(RuntimeError):
-            config.parse_admin_ids("123, @ali")
+        self.assertEqual(config.parse_admin_ids("123, 456 789"), (frozenset({123, 456, 789}), ()))
+        self.assertEqual(config.parse_admin_ids(""), (frozenset(), ()))
+        self.assertEqual(config.parse_admin_ids('"123"'), (frozenset({123}), ()), "quotes are removed")
+        self.assertEqual(config.parse_admin_ids("'123', \"456\""), (frozenset({123, 456}), ()))
+        self.assertEqual(config.parse_admin_ids("123, @ali, 12x, ²"), (frozenset({123}), ("@ali", "12x", "²")))
+
+    def test_a_typo_is_only_a_warning(self):
+        with patch.object(stats, "ADMIN_USER_IDS_IGNORED", ("@ali",)), self.assertLogs("modules.stats", "INFO") as logs:
+            stats.log_admin_setting()
+        self.assertIn("WARNING:modules.stats:ADMIN_USER_IDS: ignored '@ali'", logs.output[0])
+        self.assertIn("1 admin user id(s)", logs.output[1])
 
     def test_others_get_no_reply_and_the_log_shows_their_id(self):
         with self.assertLogs("modules.stats", "INFO") as logs:
@@ -289,7 +296,10 @@ class StatsTests(TelegramMocks):
         self.assertIn("⏳ Hit the daily limit today: 1 student (limit 3)", lines)
         self.assertIn("💎 Premium waitlist: 2 students", lines)
         self.assertIn("From 💎 Premium: 1 · From the limit message: 1", lines, "student 8 first picked on the limit message")
-        for line in ("🎯 Konkur exam prep: 0", "🧑‍🏫 More tutor messages: 1", "📷 Photo solving: 2", "📊 Study plan and weekly report: 0"):
+        premium.set_choice(7, "ai", True, "menu", "en")
+        lines = self.ask().splitlines()
+        for line in ("🎯 Konkur exam prep: 0", "🧑‍🏫 More tutor messages: 1", "📷 Photo solving: 2",
+                     "📊 Study plan and weekly report: 0", "🤖 AI course: 1"):
             self.assertIn(line, lines)
         self.assertNotIn("Counting by day started", text, "the daily table covers the whole week")
 

@@ -20,7 +20,7 @@ from telegram import Update
 from telegram.constants import ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes, TypeHandler
 
-from config import ADMIN_USER_IDS, BOT_NAME, FREE_DAILY_AI_LIMIT
+from config import ADMIN_USER_IDS, ADMIN_USER_IDS_IGNORED, BOT_NAME, FREE_DAILY_AI_LIMIT
 from modules import activity, ai, premium, student
 from modules.db import connection, db_configured
 from modules.i18n import t
@@ -235,7 +235,15 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await message.reply_text(format_stats(stats))
 
 
+def log_admin_setting() -> None:
+    """A typo in ADMIN_USER_IDS must never stop the bot, so it is only reported here."""
+    for part in ADMIN_USER_IDS_IGNORED:
+        logger.warning("ADMIN_USER_IDS: ignored %r, because it isn't a Telegram user id (a number).", part)
+    logger.info("/stats is available to %d admin user id(s) from ADMIN_USER_IDS.", len(ADMIN_USER_IDS))
+
+
 def register_stats_handlers(app: Application) -> None:
+    log_admin_setting()
     # Before everything else (group -2), so every update is seen even when a later handler stops it.
     app.add_handler(TypeHandler(Update, track_activity), group=-2)
     app.add_handler(CommandHandler("stats", stats_command))

@@ -176,6 +176,7 @@ STRINGS = {
     "premium.choice.msgs": "🧑‍🏫 پیام بیشتر به معلم",
     "premium.choice.photo": "📷 حل سؤال از روی عکس",
     "premium.choice.plan": "📊 برنامه‌ی مطالعه و گزارش هفتگی",
+    "premium.choice.ai": "🤖 دوره‌ی هوش مصنوعی",
 
     # Pop-up notices (shown briefly at the top of the chat)
     "toast.saved": "✅ ذخیره شد",
