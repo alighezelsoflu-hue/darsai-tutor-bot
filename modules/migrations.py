@@ -6,6 +6,10 @@ hasn't had yet, in order.
   checks again that it hasn't been applied once it has the lock. So two instances starting together (old and
   new during a deploy) can't apply one twice, and a failed migration leaves nothing half done: startup stops
   with the error and the next start tries again. Transaction-level locks also work through Neon's pooler.
+- Once it has the advisory lock, a migration waits at most MIGRATION_LOCK_TIMEOUT_SECONDS for any table lock.
+  An ALTER TABLE waiting behind a long query would otherwise make every later query on that table wait
+  behind it. With the timeout the migration fails fast and rolls back, the deploy fails while the old
+  instance keeps serving, and the next start tries again.
 - Migration 1 is the schema as it was when migrations started (2026-11-22): every CREATE TABLE and ADD
   COLUMN from the old init_*_db functions, with their "only the first time" backfills. It brings a database of
   any older version fully up to date (e.g. one without darsai_first_seen or setup_done), and on production it
@@ -19,6 +23,7 @@ Blocking. main.init_databases() calls migrate() at startup (with asyncio.to_thre
 import logging
 from typing import Callable, List, Optional, Tuple
 
+import config
 from modules.db import connection, db_configured
 
 logger = logging.getLogger(__name__)
@@ -289,6 +294,8 @@ def _apply(version: int, name: str, migration: Callable) -> bool:
     """Apply one migration in its own transaction, under the lock. False if another instance applied it first."""
     with connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_KEY,))
+        # After the advisory lock (another instance's migration may take longer), for this transaction only.
+        cur.execute("SELECT set_config('lock_timeout', %s, true)", (f"{config.MIGRATION_LOCK_TIMEOUT_SECONDS}s",))
         cur.execute("SELECT 1 FROM darsai_schema_version WHERE version = %s", (version,))
         if cur.fetchone():
             return False

@@ -10,11 +10,15 @@ created with `initdb -E UTF8 --locale=C` (the tests refuse a server that isn't U
 
 import os
 import threading
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from urllib.parse import urlparse
 
+import psycopg
+
+import config
 import main
 from modules import activity, ai, db, input_mode, migrations, notify, premium, stats, student
 from modules.db import connection
@@ -214,6 +218,30 @@ class PostgresTests(TelegramMocks):
                 patch.object(migrations, "LATEST_VERSION", 2):
             self.assertEqual(migrations.migrate(), 2)
         self.assertIn("darsai_half_done", self.tables())
+
+    def test_a_migration_waiting_for_a_busy_table_gives_up(self):
+        main.init_databases()
+
+        def alter_student(cur):
+            cur.execute("ALTER TABLE darsai_student ADD COLUMN darsai_test_column INTEGER")
+
+        added = patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(2, "test", alter_student)])
+        with connection() as busy, busy.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM darsai_student")  # a transaction that is still reading the table
+            with added, patch.object(config, "MIGRATION_LOCK_TIMEOUT_SECONDS", 1):
+                started = time.monotonic()
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    migrations.migrate()
+                self.assertLess(time.monotonic() - started, 4)
+        # The timeout was only for the migration's transaction: no pooled connection keeps it.
+        for _ in range(3):
+            self.assertEqual(execute("SELECT current_setting('lock_timeout')"), [("0",)])
+        self.assertEqual(migrations.schema_version(), 1)
+        columns = execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'darsai_student'")
+        self.assertNotIn(("darsai_test_column",), columns)
+        # Once the table is free, the next start applies it.
+        with added, patch.object(migrations, "LATEST_VERSION", 2):
+            self.assertEqual(migrations.migrate(), 2)
 
     def test_a_newer_database_is_a_warning(self):
         main.init_databases()

@@ -90,6 +90,9 @@ SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "").strip() or "production"
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+# How long a migration waits for a table lock (e.g. a busy table it ALTERs) before it gives up and startup stops.
+# Waiting longer would make every query on that table wait behind it.
+MIGRATION_LOCK_TIMEOUT_SECONDS = _int_env("MIGRATION_LOCK_TIMEOUT_SECONDS", 5, minimum=1)
 DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "5"))
 AI_MEMORY_ENABLED = os.getenv("AI_MEMORY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
