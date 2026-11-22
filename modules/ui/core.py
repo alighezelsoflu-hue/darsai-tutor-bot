@@ -92,12 +92,14 @@ def arrange(lang: str, rows: Sequence[Sequence[InlineKeyboardButton]]) -> List[L
 
 
 def menu_reply_keyboard(lang: str) -> ReplyKeyboardMarkup:
-    """The 🏠 Menu button that stays at the bottom of private chats."""
-    return ReplyKeyboardMarkup([[KeyboardButton(t(lang, "btn.menu"))]], resize_keyboard=True, is_persistent=True)
+    """[🏠 Menu] [▶️ Continue], at the bottom of private chats (mirrored in right-to-left languages)."""
+    row = [KeyboardButton(t(lang, "btn.menu")), KeyboardButton(t(lang, "btn.continue"))]
+    return ReplyKeyboardMarkup([list(reversed(row)) if is_rtl(lang) else row], resize_keyboard=True, is_persistent=True)
 
 
-# A student may still have the button from before they changed language, so accept every label.
+# A student may still have the buttons from before they changed language, so accept every label.
 MENU_LABELS = frozenset(t(lang, "btn.menu") for lang in UI_LANGUAGES)
+CONTINUE_LABELS = frozenset(t(lang, "btn.continue") for lang in UI_LANGUAGES)
 
 
 def student_language(user_id: int, telegram_language_code: Optional[str]) -> str:

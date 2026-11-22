@@ -1,7 +1,8 @@
 """Where typed text goes.
 
-Private chats: the 🏠 Menu label opens the menu and leaves any tool. Otherwise the text goes to the tool the
-student opened (tutor, solve, plot), else answers their practice question, else they get a nudge to the menu.
+Private chats: the bottom keyboard's 🏠 Menu opens the home screen and leaves any tool, and its ▶️ Continue
+does what the home screen's ▶️ Continue does. Otherwise the text goes to the tool the student opened (tutor,
+solve, plot), else answers their practice question, else they get a nudge to the menu.
 
 Groups: the bot only sees replies to its own messages (privacy mode). A reply to one of the student's tool
 messages goes to that tool, a reply to their practice question is an answer, and anything else is ignored.
@@ -15,7 +16,8 @@ from telegram.ext import ContextTypes
 from modules.input_mode import clear_input_mode
 
 from . import practice, tools
-from .core import MENU_LABELS, Screen
+from .core import CONTINUE_LABELS, MENU_LABELS, Screen
+from .courses import continue_route
 from .home import home_view
 
 
@@ -28,6 +30,9 @@ async def private_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if text.strip() in MENU_LABELS:
         await asyncio.to_thread(clear_input_mode, screen.chat_id, screen.user_id)
         await screen.send(*await home_view(screen))
+        return
+    if text.strip() in CONTINUE_LABELS:
+        await continue_route(screen, [])
         return
     state = await tools.current_mode(screen.chat_id, screen.user_id)
     if state:

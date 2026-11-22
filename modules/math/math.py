@@ -79,8 +79,8 @@ async def math_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def mathhelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_user or not update.effective_chat:
         return
-    screen = await Screen.load(update, context)
-    await update.message.reply_text(math_help_text(), reply_markup=home.home_keyboard(screen))
+    _, markup = await home.home_view(await Screen.load(update, context))
+    await update.message.reply_text(math_help_text(), reply_markup=markup)
 
 
 LEVEL_USAGE = "Usage: /level middle_school | high_school | pre_college | university"

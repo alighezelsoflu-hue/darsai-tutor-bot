@@ -3,10 +3,11 @@
 The difficulty follows the student's mastery of the topic, unless they press 🔽 Easier or 🔼 Harder,
 which keeps that difficulty until they pick a topic again.
 
-Routes (after "prac" in the callback data):
+Routes (after "c:math:prac" in the callback data; plain "prac" from older buttons works too):
     prac                       the topics of the student's level, with their mastery
     prac:n:<topic>[:<mode>]    a new question. Mode "a" (default) follows mastery; e, m, h pin a difficulty.
     prac:s:<question id>       show the solution. Counts as a missed question.
+▶️ Continue (ui/courses.py) reopens the active question with reopen_question().
 
 In private chats typed text is the answer (unless a tool such as Solve is open, see typed.py).
 In groups the student replies to the question.
@@ -17,8 +18,9 @@ import secrets
 import time
 from typing import Dict, List, Optional
 
-from telegram import InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from modules.courses import COURSES
 from modules.i18n import is_rtl, level_label, local_digits
 from modules.input_mode import clear_input_mode
 from modules.math.shared import (
@@ -40,6 +42,8 @@ from modules.math.topics import TOPIC_LEVEL, get_topic_module, topics_for_level
 from .core import Screen, copyable
 
 LRM = "\u200e"  # left-to-right mark
+# Every Math button's route starts with this.
+MATH = ("c", "math")
 AUTO = "a"
 MODE_DIFFICULTY = {"e": "easy", "m": "medium", "h": "hard"}
 DIFFICULTY_MODE = {difficulty: mode for mode, difficulty in MODE_DIFFICULTY.items()}
@@ -88,9 +92,30 @@ def owner_line(screen: Screen) -> str:
     return "" if screen.private else f"👤 {screen.user.first_name}\n"
 
 
+def where(screen: Screen, level: Optional[str] = None, topic: Optional[str] = None, course: str = "math") -> str:
+    """Where the student is, for a screen's first line: "Math · Grades 10–11 › Quadratic equations"."""
+    text = COURSES[course].name(screen.lang)
+    if level:
+        text += " · " + level_label(screen.lang, level)
+    if topic:
+        text += " › " + topic_name(screen, topic)
+    return text
+
+
+def back_button(screen: Screen) -> InlineKeyboardButton:
+    """🔙 Math: on every Math screen, back to the Math hub."""
+    return screen.button(screen.t("btn.back_course", course=COURSES["math"].name(screen.lang)), *MATH)
+
+
+def weakest_topic(level: str, mastery: Dict) -> str:
+    """The topic of the level with the lowest mastery (a topic not started counts as 0%; ties: the first)."""
+    return min(topics_for_level(level), key=lambda topic: mastery.get((level, topic), {}).get("mastery", 0.0))
+
+
 def question_text(screen: Screen, question: Dict) -> str:
     header = screen.t(
         "practice.header",
+        course=COURSES["math"].name(screen.lang),
         topic=topic_name(screen, question["topic"]),
         difficulty=screen.t(f"difficulty.{question['difficulty']}"),
     )
@@ -144,15 +169,15 @@ def question_keyboard(screen: Screen, question: Dict) -> InlineKeyboardMarkup:
     s = screen
     return s.keyboard([
         [
-            s.button(s.t("btn.show_solution"), "prac", "s", question["id"]),
-            s.button(s.t("btn.skip"), "prac", "n", question["topic"], question["mode"]),
+            s.button(s.t("btn.show_solution"), *MATH, "prac", "s", question["id"]),
+            s.button(s.t("btn.skip"), *MATH, "prac", "n", question["topic"], question["mode"]),
         ],
-        [s.button(s.t("btn.topics"), "prac"), s.button(s.t("btn.menu"), "home")],
+        [s.button(s.t("btn.topics"), *MATH, "prac"), back_button(s)],
     ])
 
 
 def solution_keyboard(screen: Screen, question: Dict) -> InlineKeyboardMarkup:
-    return screen.keyboard([[screen.button(screen.t("btn.show_solution"), "prac", "s", question["id"])]])
+    return screen.keyboard([[screen.button(screen.t("btn.show_solution"), *MATH, "prac", "s", question["id"])]])
 
 
 def result_keyboard(screen: Screen, question: Dict) -> InlineKeyboardMarkup:
@@ -161,13 +186,13 @@ def result_keyboard(screen: Screen, question: Dict) -> InlineKeyboardMarkup:
     index = DIFFICULTIES.index(question["difficulty"])
     other_difficulty = []
     if index > 0:
-        other_difficulty.append(s.button(s.t("btn.easier"), "prac", "n", topic, DIFFICULTY_MODE[DIFFICULTIES[index - 1]]))
+        other_difficulty.append(s.button(s.t("btn.easier"), *MATH, "prac", "n", topic, DIFFICULTY_MODE[DIFFICULTIES[index - 1]]))
     if index < len(DIFFICULTIES) - 1:
-        other_difficulty.append(s.button(s.t("btn.harder"), "prac", "n", topic, DIFFICULTY_MODE[DIFFICULTIES[index + 1]]))
+        other_difficulty.append(s.button(s.t("btn.harder"), *MATH, "prac", "n", topic, DIFFICULTY_MODE[DIFFICULTIES[index + 1]]))
     return s.keyboard([
-        [s.button(s.t("btn.next"), "prac", "n", topic, question["mode"])],
+        [s.button(s.t("btn.next"), *MATH, "prac", "n", topic, question["mode"])],
         other_difficulty,
-        [s.button(s.t("btn.topics"), "prac"), s.button(s.t("btn.menu"), "home")],
+        [s.button(s.t("btn.topics"), *MATH, "prac"), back_button(s)],
     ])
 
 
@@ -179,7 +204,7 @@ async def show_topics(screen: Screen) -> None:
     level = await asyncio.to_thread(get_user_level, screen.chat_id, screen.user_id)
     mastery = await asyncio.to_thread(get_mastery, screen.user_id)
     topics = topics_for_level(level)
-    lines = [owner_line(screen) + screen.t("practice.topics", level=level_label(screen.lang, level))]
+    lines = [owner_line(screen) + screen.t("practice.topics", where=where(screen, level))]
     for topic in topics:
         entry = mastery.get((level, topic))
         if entry and entry["correct"] + entry["wrong"]:
@@ -191,9 +216,21 @@ async def show_topics(screen: Screen) -> None:
             ))
         else:
             lines.append(screen.t("practice.topic_new", topic=topic_name(screen, topic)))
-    rows = [[screen.button(topic_name(screen, topic), "prac", "n", topic)] for topic in topics]
-    rows.append([screen.button(screen.t("btn.menu"), "home")])
+    rows = [[screen.button(topic_name(screen, topic), *MATH, "prac", "n", topic)] for topic in topics]
+    rows.append([back_button(screen)])
     await screen.show("\n".join(lines), screen.keyboard(rows))
+
+
+def question_screen(screen: Screen, question: Dict) -> str:
+    """The question with what to do next (a second try says "new answer")."""
+    if screen.private:
+        key = "practice.type_again" if question.get("attempts") else "practice.type_answer"
+    else:
+        key = "practice.reply_again" if question.get("attempts") else "practice.reply_answer"
+    instructions = screen.t(key)
+    if answer_count(question["answer"]) > 1:
+        instructions += "\n" + two_answers_hint(screen)
+    return f"{question_text(screen, question)}\n\n{instructions}"
 
 
 async def new_question(screen: Screen, topic: str, mode: str = AUTO) -> None:
@@ -207,15 +244,23 @@ async def new_question(screen: Screen, topic: str, mode: str = AUTO) -> None:
     question = get_topic_module(level, topic).practice(difficulty)
     question.update(id=secrets.token_hex(4), mode=mode, attempts=0, asked_at=time.time())
 
-    instructions = screen.t("practice.type_answer" if screen.private else "practice.reply_answer")
-    if answer_count(question["answer"]) > 1:
-        instructions += "\n" + two_answers_hint(screen)
-    message_id = await screen.show(f"{question_text(screen, question)}\n\n{instructions}", question_keyboard(screen, question))
+    message_id = await screen.show(question_screen(screen, question), question_keyboard(screen, question))
     # In groups only replies to these messages count as answers.
     question["message_ids"] = [message_id] if message_id is not None else []
     await asyncio.to_thread(save_active_question, screen.chat_id, screen.user_id, question)
     # Typed text answers this question now, even if a tool (tutor, Solve, Plot) was open.
     await asyncio.to_thread(clear_input_mode, screen.chat_id, screen.user_id)
+
+
+async def reopen_question(screen: Screen, question: Dict) -> None:
+    """▶️ Continue: show the student's unfinished question again, with the tries they have left."""
+    message_id = await screen.show(question_screen(screen, question), question_keyboard(screen, question))
+    # Typed text answers it again, even if a tool was open.
+    await asyncio.to_thread(clear_input_mode, screen.chat_id, screen.user_id)
+    if message_id in question.get("message_ids", []):
+        return
+    # In groups, replies to the new message count as answers too.
+    await remember_message(screen, question, message_id)
 
 
 async def finish(screen: Screen, question: Dict, outcome: str, from_button: bool = False) -> None:

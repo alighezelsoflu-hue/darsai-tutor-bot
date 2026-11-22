@@ -11,7 +11,7 @@ from modules.math.shared import get_mastery, get_user_level
 from modules.math.topics import LEVEL_ORDER, topics_for_level
 
 from .core import Screen
-from .practice import mastery_bar, owner_line, percent, topic_name
+from .practice import MATH, mastery_bar, owner_line, percent, topic_name, weakest_topic
 
 
 async def show_progress(screen: Screen) -> None:
@@ -42,16 +42,15 @@ async def show_progress(screen: Screen) -> None:
 
     if not any(entry["correct"] + entry["wrong"] for entry in mastery.values()):
         await s.show(f"{title}\n\n{s.t('progress.empty')}", s.keyboard([
-            [s.button(s.t("btn.practice"), "prac"), s.button(s.t("btn.menu"), "home")],
+            [s.button(s.t("btn.practice"), *MATH, "prac"), s.button(s.t("btn.menu"), "home")],
         ]))
         return
 
     # Suggest the weakest topic of the student's level (a topic not started counts as 0%).
-    own_topics = topics_for_level(level)
-    suggested = min(own_topics, key=lambda topic: mastery.get((level, topic), {}).get("mastery", 0.0))
+    suggested = weakest_topic(level, mastery)
     text = "\n\n".join([title] + sections + [s.t("progress.suggest", topic=topic_name(s, suggested))])
     await s.show(text, s.keyboard([
-        [s.button(s.t("btn.practice_named", topic=topic_name(s, suggested)), "prac", "n", suggested)],
+        [s.button(s.t("btn.practice_named", topic=topic_name(s, suggested)), *MATH, "prac", "n", suggested)],
         [s.button(s.t("btn.menu"), "home")],
     ]))
 

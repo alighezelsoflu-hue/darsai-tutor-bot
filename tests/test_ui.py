@@ -12,12 +12,12 @@ from telegram.error import TimedOut
 from telegram.ext import ApplicationHandlerStop, CallbackQueryHandler, ExtBot
 
 import main
-from modules import activity, ai, input_mode, premium, stats, student
+from modules import activity, ai, courses, input_mode, notify, premium, stats, student
 from modules.i18n import RTL_LANGUAGES, STRINGS, detect_language, local_digits, t
 from modules.math import math as math_commands
 from modules.math import shared
 from modules.math.shared import get_mastery, get_user_level, next_mastery, record_answer
-from modules.ui import core, groups, home, practice, router, tools, typed
+from modules.ui import core, groups, home, practice, router, setup, tools, typed
 
 BOT = main.telegram_app.bot
 STUDENT = 42
@@ -67,6 +67,15 @@ def code_texts(call, text_key=None):
     return [units[2 * e.offset:2 * (e.offset + e.length)].decode("utf-16-le") for e in entities if e.type == "code"]
 
 
+def math_routes(buttons):
+    """{label: route} without the "c:math:" every Math screen's route starts with."""
+    routes = {}
+    for button in buttons:
+        route = button.callback_data.split(":", 2)[2]
+        routes[button.text] = route[len("c:math:"):] if route.startswith("c:math:") else route
+    return routes
+
+
 def run(handler, update: Update, args=None):
     context = SimpleNamespace(bot=BOT, args=args or [])
     asyncio.run(handler(update, context))
@@ -85,7 +94,9 @@ class TelegramMocks(unittest.TestCase):
         activity._FALLBACK.clear()
         activity._FIRST_SEEN.clear()
         premium._FALLBACK.clear()
+        notify._FALLBACK.clear()
         stats._seen.clear()
+        setup._current.clear()
         # Sent messages get ids 77 (replies) and 78 (new messages). Edited ones keep 5.
         self.reply_text = self._patch(Message, "reply_text", SimpleNamespace(message_id=77))
         self.answer = self._patch(CallbackQuery, "answer")
@@ -96,6 +107,11 @@ class TelegramMocks(unittest.TestCase):
         self.reply_photo = self._patch(Message, "reply_photo", SimpleNamespace(message_id=79))
         self.send_photo = self._patch(ExtBot, "send_photo", SimpleNamespace(message_id=80))
         self.chat_action = self._patch(ExtBot, "send_chat_action")
+
+    @staticmethod
+    def existing_student(user_id: int = STUDENT) -> None:
+        """A student who has done setup (or was there before it existed) and has the current bottom keyboard."""
+        student.finish_setup(user_id, setup.KEYBOARD_VERSION)
 
     def _patch(self, owner, name, returns=None):
         mock = AsyncMock(return_value=returns)
@@ -176,23 +192,28 @@ class TranslationTests(unittest.TestCase):
 
 
 class StartTests(TelegramMocks):
-    def test_private_start_adds_menu_button_then_main_menu(self):
+    def test_private_start_adds_the_bottom_keyboard_then_home(self):
+        self.existing_student()
         run(home.start_command, text_update("/start"))
         welcome, menu = self.reply_text.call_args_list
         self.assertIsInstance(self.markup(welcome), ReplyKeyboardMarkup)
-        self.assertEqual(self.markup(welcome).keyboard[0][0].text, "🏠 Menu")
+        self.assertEqual([b.text for b in self.markup(welcome).keyboard[0]], ["🏠 Menu", "▶️ Continue"])
+        self.assertIn("▶️ Continue takes you back to where you were", welcome.args[0])
         buttons = self.buttons(self.markup(menu))
-        self.assertEqual(len(buttons), 8)
+        self.assertEqual(len(buttons), 11)
         self.assertTrue(all(b.callback_data.startswith(f"d1:{STUDENT}:") for b in buttons))
-        self.assertIn("High School", menu.args[0])
+        self.assertTrue(menu.args[0].startswith("DarsAI 🎓 · Grades 10–11\n\nChoose a course to start:"))
 
     def test_persian_telegram_users_get_persian(self):
+        self.existing_student()
         run(home.start_command, text_update("/start", language_code="fa"))
         welcome, menu = self.reply_text.call_args_list
         self.assertIn("خوش اومدی", welcome.args[0])
-        self.assertIn("متوسطه دوم (دهم و یازدهم)", menu.args[0])
-        # Mirrored: the first button (Learn) sits on the right.
-        self.assertEqual(self.markup(menu).inline_keyboard[0][1].text, t("fa", "btn.learn"))
+        # Mirrored: 🏠 منو sits on the right.
+        self.assertEqual([b.text for b in self.markup(welcome).keyboard[0]], ["▶️ ادامه", "🏠 منو"])
+        self.assertIn("منوی اصلی DarsAI 🎓 · دهم و یازدهم", menu.args[0])
+        # Mirrored: the first course (Math) sits on the right.
+        self.assertEqual(self.markup(menu).inline_keyboard[1][1].text, "📐 ریاضی")
 
     def test_group_start_has_no_bottom_button_and_names_the_owner(self):
         run(home.start_command, text_update("/start", chat_type="supergroup"))
@@ -233,7 +254,7 @@ class ButtonTests(TelegramMocks):
         self.assertIn("تنظیمات", self.edit_text.call_args.args[0])
         # A new message updates the bottom Menu button to the new language.
         sent = self.send_message.call_args
-        self.assertEqual(self.markup(sent).keyboard[0][0].text, "🏠 منو")
+        self.assertEqual([b.text for b in self.markup(sent).keyboard[0]], ["▶️ ادامه", "🏠 منو"])
 
     def test_level_is_saved_for_every_chat(self):
         self.press(f"d1:{STUDENT}:set:lvl:university", chat_type="supergroup")
@@ -245,7 +266,7 @@ class ButtonTests(TelegramMocks):
         self.press(f"d1:{STUDENT}:set:lvl:wizard")
         self.assertEqual(get_user_level(STUDENT, STUDENT), "high_school")
         labels = [b.text for b in self.buttons(self.markup(self.edit_text.call_args))]
-        self.assertIn("High School ✓", labels)
+        self.assertIn("Grades 10–11 ✓", labels)
 
     def test_clear_memory_asks_first(self):
         ai.save_exchange(STUDENT, STUDENT, "quadratics", "q", "a")
@@ -259,7 +280,7 @@ class ButtonTests(TelegramMocks):
         self.press(f"d1:{STUDENT}:home", photo=True)
         self.edit_text.assert_not_called()
         self.edit_markup.assert_called_once()
-        self.assertIn("What would you like to do?", self.send_message.call_args.args[1])
+        self.assertIn("DarsAI 🎓 · Grades 10–11", self.send_message.call_args.args[1])
 
 
 class PracticeTests(TelegramMocks):
@@ -282,18 +303,18 @@ class PracticeTests(TelegramMocks):
         return call.args[0], self.markup(call)
 
     def routes(self, markup):
-        return {b.text: b.callback_data.split(":", 2)[2] for b in self.buttons(markup)}
+        return math_routes(self.buttons(markup))
 
     def test_practice_lists_the_topics_of_the_level(self):
         record_answer(STUDENT, "high_school", "algebra", "easy", "first_try")
         self.press(f"d1:{STUDENT}:prac")
         text = self.edit_text.call_args.args[0]
-        self.assertIn("Practice · High School", text)
+        self.assertTrue(text.startswith("✍️ Math · Grades 10–11\nPick a topic:\n"))
         self.assertIn("Equations with brackets: ▰▰▱▱▱▱▱▱▱▱ 18%", text)
         self.assertIn("Quadratic equations: not started yet", text)
         routes = self.routes(self.markup(self.edit_text.call_args))
         self.assertEqual(routes["Equations with brackets"], "prac:n:algebra")
-        self.assertEqual(routes["🏠 Menu"], "home")
+        self.assertEqual(routes["🔙 Math"], "c:math")
 
     def test_a_topic_opens_an_easy_question_in_the_same_message(self):
         self.press(f"d1:{STUDENT}:prac:n:quadratics")
@@ -458,7 +479,7 @@ class PracticeTests(TelegramMocks):
     def test_menu_button_keeps_the_question(self):
         self.press(f"d1:{STUDENT}:prac:n:algebra")
         self.type("🏠 Menu")
-        self.assertIn("What would you like to do?", self.last_reply()[0])
+        self.assertIn("Pick up where you left off", self.last_reply()[0])
         self.assertIsNotNone(self.question())
 
     def test_typed_text_after_a_day_opens_the_menu(self):
@@ -531,8 +552,13 @@ class PracticeTests(TelegramMocks):
 
     def test_callback_data_fits_with_the_longest_routes(self):
         big = 10 ** 15
-        core.pack(big, "prac", "n", "linear_equations", "a")
-        core.pack(big, "prac", "s", "0123abcd")
+        core.pack(big, *practice.MATH, "prac", "n", "linear_equations", "a")
+        core.pack(big, *practice.MATH, "prac", "s", "0123abcd")
+        core.pack(big, *practice.MATH, "solve", "x", "0123abcd")
+        core.pack(big, *practice.MATH, "konkur", "n")
+        for course in courses.COURSES:
+            core.pack(big, "su", "c", course)
+            core.pack(big, "c", course, "n")
 
 
 class StepFiveTests(TelegramMocks):
@@ -564,7 +590,7 @@ class StepFiveTests(TelegramMocks):
         return call.args[0], self.markup(call)
 
     def routes(self, markup):
-        return {b.text: b.callback_data.split(":", 2)[2] for b in self.buttons(markup)}
+        return math_routes(self.buttons(markup))
 
     def test_main_menu_has_no_coming_soon_entries(self):
         for route in ("learn", "prac", "tutor", "solve", "plot", "prog", "set", "prem"):
@@ -576,16 +602,17 @@ class StepFiveTests(TelegramMocks):
 
     def test_learn_topics_and_lesson(self):
         self.press(f"d1:{STUDENT}:learn")
-        self.assertIn("Learn · High School", self.shown())
+        self.assertEqual(self.shown(), "📘 Math · Grades 10–11\nPick a topic:")
         self.assertEqual(self.routes(self.markup(self.edit_text.call_args))["Quadratic equations"], "learn:quadratics")
         self.press(f"d1:{STUDENT}:learn:quadratics")
         text = self.shown()
-        for expected in ("📘 Quadratic equations", "ax^2 + bx + c = 0", "Example:", "x^2 - 5x + 6 = 0", "How to solve it", "x = 2, x = 3"):
+        for expected in ("📘 Math · Grades 10–11 › Quadratic equations\n", "ax^2 + bx + c = 0", "Example:", "x^2 - 5x + 6 = 0", "How to solve it", "x = 2, x = 3"):
             self.assertIn(expected, text)
         routes = self.routes(self.markup(self.edit_text.call_args))
         self.assertEqual(routes["✍️ Practice this"], "prac:n:quadratics")
         self.assertEqual(routes["🧑‍🏫 Ask the tutor"], "tutor:quadratics")
         self.assertEqual(routes["📚 Lessons"], "learn")
+        self.assertEqual(routes["🔙 Math"], "c:math")
 
     def test_every_lesson_renders_in_both_languages(self):
         for lang in ("en", "fa"):
@@ -601,20 +628,20 @@ class StepFiveTests(TelegramMocks):
     def test_old_lesson_command_uses_the_lesson_screen(self):
         run(math_commands.lesson_command, text_update("/lesson university calculus"), args=["university", "calculus"])
         text, markup = self.last_reply()
-        self.assertIn("📘 Derivatives", text)
+        self.assertTrue(text.startswith("📘 Math · University › Derivatives\n"))
         self.assertIn("f'(x) = 6x + 5", text)
 
     # ---------------------------------------------------------------- Ask the tutor
 
     def test_tutor_answers_typed_questions_and_keeps_listening(self):
         self.press(f"d1:{STUDENT}:tutor")
-        self.assertIn("Type your math question", self.shown())
+        self.assertTrue(self.shown().startswith("🧑‍🏫 Ask the tutor · Math · Grades 10–11\nType any math question"))
         self.assertEqual(self.mode()["mode"], "tutor")
         self.type("why is x^0 = 1?")
         text, markup = self.last_reply()
         self.assertTrue(text.startswith("Step 1: think."))
         self.assertIn("Type another question", text)
-        self.assertEqual(self.routes(markup), {"🏠 Menu": "home"})
+        self.assertEqual(self.routes(markup), {"🔙 Math": "c:math"})
         self.chat_action.assert_called()
         self.assertEqual(ai.load_history(STUDENT, STUDENT, "math")[-2]["content"], "why is x^0 = 1?")
         self.type("and x^1?")
@@ -625,7 +652,7 @@ class StepFiveTests(TelegramMocks):
     def test_tutor_from_a_lesson_uses_that_topic_and_the_student_language(self):
         student.set_language(STUDENT, "fa")
         self.press(f"d1:{STUDENT}:tutor:quadratics")
-        self.assertIn("موضوع: معادله‌ی درجه دوم", self.shown())
+        self.assertTrue(self.shown().startswith("🧑‍🏫 از معلم بپرس · ریاضی · دهم و یازدهم › معادله‌ی درجه دوم\n"))
         self.type("دلتا چیه؟")
         system = self.provider.call_args.args[0][0]["content"]
         self.assertIn("Respond in Persian/Farsi", system)
@@ -855,7 +882,7 @@ class StepFiveTests(TelegramMocks):
 
     def test_menu_on_a_graph_sends_a_new_message(self):
         self.press(f"d1:{STUDENT}:home", photo=True)
-        self.assertIn("What would you like to do?", self.send_message.call_args.args[1])
+        self.assertIn("DarsAI 🎓 · Grades 10–11", self.send_message.call_args.args[1])
 
     # ---------------------------------------------------------------- My progress
 
@@ -870,11 +897,11 @@ class StepFiveTests(TelegramMocks):
         record_answer(STUDENT, "university", "calculus", "easy", "first_try")
         self.press(f"d1:{STUDENT}:prog")
         text = self.shown()
-        self.assertIn("🎓 High School", text)
+        self.assertIn("🎓 Grades 10–11", text)
         self.assertIn("Equations with brackets: ▰▰▰▱▱▱▱▱▱▱ 26%\n✅ 1 · ❌ 1", text)
         self.assertIn("Quadratic equations: not started yet", text)
         self.assertIn("🎓 University\nDerivatives:", text)
-        self.assertNotIn("Middle School", text)
+        self.assertNotIn("Grades 7–9", text)
         self.assertIn("Suggested next: Quadratic equations", text)
         routes = self.routes(self.markup(self.edit_text.call_args))
         self.assertEqual(routes["✍️ Practice: Quadratic equations"], "prac:n:quadratics")
@@ -888,14 +915,14 @@ class ReleaseOneLeftoverTests(TelegramMocks):
 
     def test_old_buttons_open_the_new_screens(self):
         expected = {
-            "menu:math": "What would you like to do?",
+            "menu:math": "📐 Math · Grades 10–11\n📊 Mastery",
             "main:level": "Choose your level",
-            "main:practice": "Practice · High School",
-            "math_action:practice": "Practice · High School",
+            "main:practice": "✍️ Math · Grades 10–11\nPick a topic:",
+            "math_action:practice": "✍️ Math · Grades 10–11\nPick a topic:",
             "main:plot": "Type a function",
             "math_action:plot": "Type a function",
-            "main:ai": "Type your math question",
-            "math_action:tutor": "Type your math question",
+            "main:ai": "Type any math question",
+            "math_action:tutor": "Type any math question",
             "main:progress": "haven't practised yet",
             "math_action:progress": "haven't practised yet",
             "main:subscribe": "Premium isn't ready yet",
@@ -937,6 +964,7 @@ class ReleaseOneLeftoverTests(TelegramMocks):
         self.edit_text.assert_not_called()
 
     def test_math_and_mathhelp_show_the_new_menu(self):
+        self.existing_student()
         run(math_commands.math_command, text_update("/math"))
         welcome, menu = self.reply_text.call_args_list
         self.assertTrue(all(b.callback_data.startswith(f"d1:{STUDENT}:") for b in self.buttons(self.markup(menu))))

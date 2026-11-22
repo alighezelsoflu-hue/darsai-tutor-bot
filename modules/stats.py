@@ -8,6 +8,7 @@ Where the numbers come from (days are UTC, like the daily tutor limit). Admins a
 - Practice answers: per day from darsai_daily_activity, all time from darsai_mastery.
 - Tutor messages and students who hit the daily limit: darsai_ai_usage.
 - The Premium waitlist: darsai_premium_waitlist.
+- 🔔 Notify me on the coming-soon courses: darsai_course_notify.
 
 /stats is English only: students never see it.
 """
@@ -22,7 +23,8 @@ from telegram.constants import ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes, TypeHandler
 
 from config import ADMIN_USER_IDS, ADMIN_USER_IDS_IGNORED, BOT_NAME, FREE_DAILY_AI_LIMIT
-from modules import activity, ai, premium, student
+from modules import activity, ai, notify, premium, student
+from modules.courses import COURSES
 from modules.db import connection, db_configured
 from modules.i18n import t
 from modules.math import shared
@@ -103,6 +105,7 @@ def collect_stats(today: date, admins=ADMIN_USER_IDS) -> Dict:
     stats = {
         "today": today, "week": week, "limit": limit, "admins": len(admins),
         "waitlist": premium.waitlist_summary(exclude=admins),
+        "notify": notify.notice_summary(exclude=admins),
     }
     if db_configured():
         stats.update(_collect_from_database(today, week, limit, admins))
@@ -282,6 +285,11 @@ def format_stats(stats: Dict) -> str:
         f"From 💎 Premium: {sources['menu']:,} · From the limit message: {sources['limit']:,}",
     ]
     lines += [f"{t('en', f'premium.choice.{choice}')}: {count:,}" for choice, count in waitlist["choices"].items()]
+    lines += ["", f"🔔 Notify me (coming-soon courses): {_students(stats['notify']['students'])}"]
+    lines += [
+        f"{COURSES[course].emoji} {COURSES[course].name('en')}: {count:,}"
+        for course, count in stats["notify"]["courses"].items()
+    ]
     since = stats["counting_since"] or stats["today"]
     if since > stats["week"]:
         lines += [

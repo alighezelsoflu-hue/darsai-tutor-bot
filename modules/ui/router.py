@@ -11,10 +11,11 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
-from . import groups, home, learn, practice, premium, progress, tools, typed
+from . import courses, groups, home, learn, practice, premium, progress, setup, tools, typed
 from .core import CALLBACK_PREFIX, Screen, unpack
 
 Route = Callable[[Screen, List[str]], Awaitable[None]]
@@ -22,29 +23,33 @@ Route = Callable[[Screen, List[str]], Awaitable[None]]
 # The first part of a button's route picks the screen. The rest is passed to it.
 ROUTES: Dict[str, Route] = {
     "home": home.home_route,
+    "c": courses.course_route,  # c:<course>[:<screen>…], e.g. c:math:prac:n:quadratics
+    "cont": courses.continue_route,
+    "su": setup.setup_route,
     "set": home.settings_route,
+    "prog": progress.progress_route,
+    "prem": premium.premium_route,
+    # Math screens from before courses (buttons in older messages): the same as c:math:<screen>.
     "prac": practice.practice_route,
     "learn": learn.learn_route,
     "tutor": tools.tutor_route,
     "solve": tools.solve_route,
     "plot": tools.plot_route,
-    "prog": progress.progress_route,
-    "prem": premium.premium_route,
 }
 
 # Buttons from before the button interface, still in old messages (and "menu:math" from /aihelp).
 # They have no owner, so they open the new screen for whoever presses them.
 OLD_BUTTONS: Dict[str, Tuple[str, ...]] = {
-    "menu:math": ("home",),
+    "menu:math": ("c", "math"),
     "main:level": ("set", "lvl"),
-    "main:practice": ("prac",),
-    "main:plot": ("plot",),
-    "main:ai": ("tutor",),
+    "main:practice": ("c", "math", "prac"),
+    "main:plot": ("c", "math", "plot"),
+    "main:ai": ("c", "math", "tutor"),
     "main:progress": ("prog",),
     "main:subscribe": ("prem",),
-    "math_action:tutor": ("tutor",),
-    "math_action:practice": ("prac",),
-    "math_action:plot": ("plot",),
+    "math_action:tutor": ("c", "math", "tutor"),
+    "math_action:practice": ("c", "math", "prac"),
+    "math_action:plot": ("c", "math", "plot"),
     "math_action:progress": ("prog",),
 }
 OLD_LEVEL_PREFIX = "math_level:"  # math_level:<level> saves the level
@@ -111,6 +116,9 @@ def register_ui_handlers(app: Application) -> None:
         ),
         group=-1,
     )
+    # Same group, so it runs for every update the check above lets through, before the screens: the
+    # one-time message with the new bottom keyboard (private chats).
+    app.add_handler(TypeHandler(Update, setup.keyboard_notice), group=-1)
     app.add_handler(CommandHandler("start", home.start_command))
     app.add_handler(CommandHandler("subscribe", premium.subscribe_command))
     app.add_handler(CallbackQueryHandler(callback_router, pattern=rf"^{CALLBACK_PREFIX}:"))

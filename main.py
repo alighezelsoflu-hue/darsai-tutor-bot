@@ -16,9 +16,10 @@ from modules.input_mode import init_input_db
 from modules.math.math import register_math_handlers
 from modules.math.shared import init_math_db
 from modules.i18n import detect_language, t
+from modules.notify import init_notify_db
 from modules.premium import init_premium_db
 from modules.stats import register_stats_handlers
-from modules.student import init_student_db
+from modules.student import init_setup_db, init_student_db
 from modules.ui.core import Screen
 from modules.ui.home import home_keyboard
 from modules.ui.router import register_fallback_handlers, register_ui_handlers
@@ -133,7 +134,9 @@ def init_databases() -> None:
     init_input_db()
     init_activity_db()
     init_premium_db()
-    init_first_seen_db()  # last: the first time, it copies in the students the other tables know
+    init_notify_db()
+    init_first_seen_db()  # after the others: the first time, it copies in the students the other tables know
+    init_setup_db()  # last: the first time, it marks every student in darsai_first_seen as set up
 
 
 @asynccontextmanager

@@ -3,7 +3,7 @@
 Pressing one of them sets the student's input mode (modules/input_mode.py), so their next typed messages
 go there until they press 🏠 Menu or start practising. In groups they reply to the bot's messages instead.
 
-Routes:
+Routes (after "c:math"; the same routes without it, from older buttons, work too):
     tutor[:<topic>]        ask the tutor (about a topic from Learn, or any math)
     solve                  type equations
     solve:e:<index>        solve one of the examples (a one-tap button)
@@ -26,6 +26,7 @@ from telegram.error import BadRequest
 
 from modules.ai import AILimitReached, ask_ai_with_memory, log_ai_error
 from modules.common import LANGUAGES
+from modules.courses import COURSES
 from modules.input_mode import change_input_mode, claim_last_result, get_input_mode, set_input_mode
 from modules.math.plot import create_plot, parse_plot_input
 from modules.math.prompts import math_tutor_prompt
@@ -33,7 +34,7 @@ from modules.math.shared import SolveError, UnsupportedEquation, get_user_level,
 from modules.math.topics import TOPIC_LEVEL
 
 from .core import Screen
-from .practice import formulas, owner_line, topic_name
+from .practice import MATH, back_button, formulas, owner_line, where
 from .premium import limit_text, limit_view
 
 MODES = ("tutor", "solve", "plot")
@@ -53,7 +54,8 @@ SOLVE_ERROR_EXAMPLES = {"two_equals": "", "needs_equals": "2x + 5 = 17", "empty_
 
 
 def menu_keyboard(screen: Screen) -> InlineKeyboardMarkup:
-    return screen.keyboard([[screen.button(screen.t("btn.menu"), "home")]])
+    """🔙 Math, under the tools' answers."""
+    return screen.keyboard([[back_button(screen)]])
 
 
 def pretty_formula(text: str) -> str:
@@ -63,14 +65,14 @@ def pretty_formula(text: str) -> str:
 
 def example_buttons(screen: Screen, mode: str) -> List[InlineKeyboardButton]:
     return [
-        screen.button(f"{EXAMPLE_ICONS[mode]} {pretty_formula(example)}", mode, "e", str(index))
+        screen.button(f"{EXAMPLE_ICONS[mode]} {pretty_formula(example)}", *MATH, mode, "e", str(index))
         for index, example in enumerate(EXAMPLES[mode])
     ]
 
 
 def tool_keyboard(screen: Screen, mode: str) -> InlineKeyboardMarkup:
-    """One-tap examples, then Menu: for the tool's first screen and when the input couldn't be used."""
-    return screen.keyboard([example_buttons(screen, mode), [screen.button(screen.t("btn.menu"), "home")]])
+    """One-tap examples, then 🔙 Math: for the tool's first screen and when the input couldn't be used."""
+    return screen.keyboard([example_buttons(screen, mode), [back_button(screen)]])
 
 
 def ai_error_text(screen: Screen, error: Exception) -> str:
@@ -188,10 +190,11 @@ async def tutor_text(screen: Screen, state: Dict, text: str) -> None:
 
 async def tutor_route(screen: Screen, args: List[str]) -> None:
     topic = args[0] if args and args[0] in TOPIC_LEVEL else ""
-    text = screen.t("tutor.text")
     if topic:
-        text += "\n" + screen.t("tutor.topic", topic=topic_name(screen, topic))
-    await start_mode(screen, "tutor", text, topic)
+        place = where(screen, TOPIC_LEVEL[topic], topic)
+    else:
+        place = where(screen, await asyncio.to_thread(get_user_level, screen.chat_id, screen.user_id))
+    await start_mode(screen, "tutor", screen.t("tutor.text", where=place), topic)
 
 
 # ------------------------------------------------------------
@@ -237,7 +240,7 @@ async def solve_text(screen: Screen, state: Dict, text: str) -> None:
         result_id = secrets.token_hex(4)
         # Only the newest result can be explained; older Explain buttons say they have expired.
         fields["last"] = {"id": result_id, "equation": text, "report": report}
-        markup = s.keyboard([[s.button(s.t("btn.explain"), "solve", "x", result_id)], [s.button(s.t("btn.menu"), "home")]])
+        markup = s.keyboard([[s.button(s.t("btn.explain"), *MATH, "solve", "x", result_id)], [back_button(s)]])
     else:
         # Nothing to explain: the equation couldn't be used, so offer the examples.
         markup = tool_keyboard(s, "solve")
@@ -273,7 +276,8 @@ async def solve_route(screen: Screen, args: List[str]) -> None:
     elif len(args) > 1 and args[0] == "e":
         await run_example(screen, "solve", args[1])
     else:
-        await start_mode(screen, "solve", screen.t("solve.text") + "\n" + formulas(screen, SOLVE_EXAMPLES, copy=True))
+        text = screen.t("solve.text", course=COURSES["math"].name(screen.lang))
+        await start_mode(screen, "solve", text + "\n" + formulas(screen, SOLVE_EXAMPLES, copy=True))
 
 
 # ------------------------------------------------------------
@@ -299,7 +303,7 @@ async def plot_route(screen: Screen, args: List[str]) -> None:
         await run_example(screen, "plot", args[1])
         return
     text = (
-        screen.t("plot.text") + "\n" + formulas(screen, PLOT_EXAMPLES, copy=True) + "\n\n"
+        screen.t("plot.text", course=COURSES["math"].name(screen.lang)) + "\n" + formulas(screen, PLOT_EXAMPLES, copy=True) + "\n\n"
         + screen.t("plot.range") + "\n" + formulas(screen, [PLOT_RANGE_EXAMPLE], copy=True)
     )
     await start_mode(screen, "plot", text)
