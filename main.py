@@ -4,14 +4,20 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
 from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
 from modules.db import close_pool
+from modules.input_mode import init_input_db
 from modules.math.math import register_math_handlers
 from modules.math.shared import init_math_db
+from modules.i18n import detect_language, t
+from modules.student import init_student_db
+from modules.ui.core import Screen
+from modules.ui.home import home_keyboard
+from modules.ui.router import register_fallback_handlers, register_ui_handlers
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
@@ -31,32 +37,10 @@ SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 telegram_app = Application.builder().token(TOKEN).concurrent_updates(True).build()
 
 
-def start_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎓 Choose level", callback_data="main:level"), InlineKeyboardButton("🧮 Math tutor", callback_data="menu:math")],
-        [InlineKeyboardButton("✍️ Practice", callback_data="main:practice"), InlineKeyboardButton("📈 Plot", callback_data="main:plot")],
-        [InlineKeyboardButton("🤖 AI help", callback_data="main:ai"), InlineKeyboardButton("📊 Progress", callback_data="main:progress")],
-        [InlineKeyboardButton("💎 Subscription", callback_data="main:subscribe")],
-    ])
-
-
-def start_text() -> str:
-    return (
-        f"Welcome to {BOT_NAME} 🎓\n\n"
-        "Not just answers. Real learning.\n\n"
-        "I help students learn step by step with lessons, practice, quizzes, plotting, and AI tutor explanations.\n\n"
-        "Start here:\n"
-        "1. Choose your level\n"
-        "2. Pick a math topic\n"
-        "3. Learn, practice, check answers, and track progress\n\n"
-        "Current MVP: Math tutor.\n"
-        "Coming later: Physics, Chemistry, Biology, Data Science, and more."
-    )
-
-
 def help_text() -> str:
     return (
         f"{BOT_NAME} help 📚\n\n"
+        "Tip: you don't need commands. Tap /start and use the buttons.\n\n"
         "Main commands:\n"
         "/start - open the main menu\n"
         "/math - open the math menu\n"
@@ -77,16 +61,11 @@ def help_text() -> str:
     )
 
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-    await update.message.reply_text(start_text(), reply_markup=start_keyboard())
-
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not update.message or not update.effective_user or not update.effective_chat:
         return
-    await update.message.reply_text(help_text(), reply_markup=start_keyboard())
+    screen = await Screen.load(update, context)
+    await update.message.reply_text(help_text(), reply_markup=home_keyboard(screen))
 
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -103,53 +82,12 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def main_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The old "main:subscribe" button. Other old buttons open the new screens (see ui/router.py OLD_BUTTONS)."""
     query = update.callback_query
     if not query:
         return
     await query.answer()
-    data = query.data or ""
-    if data == "menu:math":
-        await query.edit_message_text(
-            "Math menu 🧮\n\n"
-            "Use /math to open the full math menu.\n\n"
-            "Quick examples:\n"
-            "/lesson high_school algebra\n"
-            "/practice high_school quadratics\n"
-            "/math_tutor fa high_school quadratics explain quadratic formula",
-        )
-    elif data == "main:level":
-        await query.edit_message_text(
-            "Choose your level with one command:\n\n"
-            "/level middle_school\n"
-            "/level high_school\n"
-            "/level pre_college\n"
-            "/level university"
-        )
-    elif data == "main:practice":
-        await query.edit_message_text(
-            "Practice examples ✍️\n\n"
-            "/practice middle_school linear_equations\n"
-            "/practice high_school algebra\n"
-            "/practice high_school quadratics\n"
-            "/practice university calculus"
-        )
-    elif data == "main:plot":
-        await query.edit_message_text(
-            "Plot examples 📈\n\n"
-            "/plot y=x^2 range -5 5\n"
-            "/plot sin(x) range -6.28 6.28\n"
-            "/plot y=x^2-4x+3 range -5 8"
-        )
-    elif data == "main:ai":
-        await query.edit_message_text(
-            "AI tools 🤖\n\n"
-            "/aihelp - AI help\n"
-            "/chat explain how to study algebra\n"
-            "/math_tutor high_school algebra explain linear equations"
-        )
-    elif data == "main:progress":
-        await query.edit_message_text("Use /progress to see your math progress.")
-    elif data == "main:subscribe":
+    if query.data == "main:subscribe":
         await query.edit_message_text(
             "Subscription MVP 💎\n\n"
             "DarsAI is currently in free MVP testing mode. Premium plans will be added later."
@@ -159,50 +97,48 @@ async def main_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Error while handling an update", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
+        # The language from Telegram only: the database may be what failed.
+        lang = detect_language(update.effective_user.language_code if update.effective_user else None)
         try:
-            await update.effective_message.reply_text("Sorry, something went wrong. Please try again.")
+            await update.effective_message.reply_text(t(lang, "error.generic"))
         except Exception:
             logger.warning("Could not send the error message to the user.")
 
 
 async def setup_bot_commands() -> None:
-    commands = [
-        BotCommand("start", "Open DarsAI menu"),
-        BotCommand("help", "Help"),
-        BotCommand("math", "Math menu"),
-        BotCommand("mathhelp", "Math help"),
-        BotCommand("math_tutor", "AI math tutor"),
-        BotCommand("solve", "Solve math"),
-        BotCommand("practice", "Practice math"),
-        BotCommand("quiz", "Quiz"),
-        BotCommand("check", "Check answer"),
-        BotCommand("plot", "Plot function"),
-        BotCommand("progress", "Progress"),
-        BotCommand("aihelp", "AI help"),
-        BotCommand("chat", "AI chat"),
-        BotCommand("subscribe", "Subscription"),
-    ]
-    await telegram_app.bot.set_my_commands(commands[:100])
+    """Telegram's "/" menu shows only /start and /help. Every other command still works when typed."""
+    for language_code in (None, "fa"):
+        lang = language_code or "en"
+        commands = [BotCommand("start", t(lang, "command.start")), BotCommand("help", t(lang, "command.help"))]
+        await telegram_app.bot.set_my_commands(commands, language_code=language_code)
 
 
 def register_handlers() -> None:
-    telegram_app.add_handler(CommandHandler("start", start_command))
+    register_ui_handlers(telegram_app)
     telegram_app.add_handler(CommandHandler("help", help_command))
     telegram_app.add_handler(CommandHandler("subscribe", subscribe_command))
     register_ai_handlers(telegram_app)
     register_math_handlers(telegram_app)
     telegram_app.add_handler(CallbackQueryHandler(main_callback_handler, pattern=r"^(main:|menu:)"))
     telegram_app.add_handler(CallbackQueryHandler(ai_callback_handler, pattern=r"^ai:"))
+    register_fallback_handlers(telegram_app)  # last: answers buttons nothing above knows
     telegram_app.add_error_handler(error_handler)
 
 
 register_handlers()
 
 
+def init_databases() -> None:
+    """Blocking. Create every table once at startup."""
+    init_ai_db()
+    init_math_db()
+    init_student_db()
+    init_input_db()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await asyncio.to_thread(init_ai_db)
-    await asyncio.to_thread(init_math_db)
+    await asyncio.to_thread(init_databases)
     await telegram_app.initialize()
     await telegram_app.start()
     await setup_bot_commands()

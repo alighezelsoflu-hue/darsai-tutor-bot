@@ -21,7 +21,7 @@ from config import (
     OPENROUTER_API_KEY,
     WEBHOOK_URL,
 )
-from modules.common import extract_language, reply_long
+from modules.common import PLAIN_TEXT_RULE, extract_language, reply_long
 from modules.db import connection, db_configured
 
 logger = logging.getLogger(__name__)
@@ -231,6 +231,37 @@ class AIProviderError(RuntimeError):
     pass
 
 
+class AIModelUnavailable(AIProviderError):
+    """The provider no longer offers AI_MODEL (or the key can't use it). Only a config change fixes it."""
+
+
+# Error codes providers return when the model is gone (Groq uses both, OpenAI the first).
+MODEL_GONE_CODES = ("model_not_found", "model_decommissioned")
+
+# Reasoning models put their hidden thinking in the answer between these tags.
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
+_THINK_CLOSE = re.compile(r"</think>", re.IGNORECASE)
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove the model's hidden reasoning (<think>…</think>) from an answer."""
+    text = _THINK_BLOCK.sub("", text or "")
+    # Only a closing tag left: the chat template opened the block, so the text starts mid-reasoning.
+    text = _THINK_CLOSE.split(text)[-1]
+    # Only an opening tag left: max_tokens cut the answer off while the model was still reasoning.
+    text = _THINK_OPEN.split(text)[0]
+    return text.strip()
+
+
+def _error_code(response: httpx.Response) -> str:
+    try:
+        error = response.json().get("error") or {}
+        return str(error.get("code") or "") if isinstance(error, dict) else ""
+    except (ValueError, AttributeError):
+        return ""
+
+
 def provider_config() -> Tuple[str, str, str, Dict[str, str]]:
     provider = AI_PROVIDER.lower().strip()
     model = AI_MODEL
@@ -270,7 +301,7 @@ async def call_ai_provider(
     max_tokens: int = 900,
     temperature: float = 0.25,
 ) -> str:
-    _, url, model, headers = provider_config()
+    provider, url, model, headers = provider_config()
     payload = {
         "model": model,
         "messages": messages,
@@ -283,12 +314,22 @@ async def call_ai_provider(
     except httpx.HTTPError as error:
         raise AIProviderError(f"Could not reach the AI provider: {error!r}") from error
     if response.status_code >= 400:
+        code = _error_code(response)
+        if code in MODEL_GONE_CODES:
+            raise AIModelUnavailable(
+                f"AI_MODEL {model!r} is no longer available from {provider} ({code}). The tutor is down "
+                "until AI_MODEL is set to a model this API key can use (Render: Environment)."
+            )
         raise AIProviderError(f"AI provider error {response.status_code}: {response.text[:500]}")
     try:
         content = response.json()["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError) as error:
         raise AIProviderError(f"Unexpected AI provider response: {response.text[:500]}") from error
-    return (content or "").strip()
+    answer = strip_reasoning(content)
+    if not answer:
+        # Nothing but reasoning (or nothing at all). Failing gives the student's daily message back.
+        raise AIProviderError(f"The AI answer was empty after removing reasoning ({len(content or '')} characters).")
+    return answer
 
 
 async def ask_ai_with_memory(
@@ -317,6 +358,11 @@ async def ask_ai_with_memory(
     return answer
 
 
+def log_ai_error(error: Exception) -> None:
+    """Log a failed AI request. A provider error is expected (no traceback); anything else is a bug."""
+    logger.error("AI request failed: %s", error, exc_info=None if isinstance(error, AIProviderError) else error)
+
+
 def ai_error_message(error: Exception) -> str:
     """User-facing text for a failed AI request. Details go to the log, not to the student."""
     if isinstance(error, AILimitReached):
@@ -325,7 +371,7 @@ def ai_error_message(error: Exception) -> str:
             "The limit resets at 00:00 UTC.\n\n"
             "You can still use /lesson, /practice, /solve and /plot."
         )
-    logger.error("AI request failed: %s", error, exc_info=not isinstance(error, AIProviderError))
+    log_ai_error(error)
     return "The AI tutor is not available right now. Please try again in a few minutes."
 
 
@@ -338,7 +384,8 @@ GENERAL_TUTOR_PROMPT = (
     "Do not behave like a generic chatbot. Teach step by step. "
     "First identify the student's goal, then explain the idea, then give an example, "
     "then ask a short follow-up question. Use encouraging language. "
-    "If the student is wrong, diagnose the mistake kindly."
+    "If the student is wrong, diagnose the mistake kindly. "
+    + PLAIN_TEXT_RULE
 )
 
 

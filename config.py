@@ -36,7 +36,9 @@ AI_MEMORY_ENABLED = os.getenv("AI_MEMORY_ENABLED", "true").lower() in {"1", "tru
 
 # AI provider
 AI_PROVIDER = os.getenv("AI_PROVIDER", "groq").lower().strip()
-AI_MODEL = os.getenv("AI_MODEL", "llama-3.1-8b-instant").strip()
+# Groq removed llama-3.1-8b-instant. qwen/qwen3.8-27b gave the best casual Persian and plain text.
+DEFAULT_AI_MODEL = "qwen/qwen3.8-27b"
+AI_MODEL = os.getenv("AI_MODEL", "").strip() or DEFAULT_AI_MODEL
 AI_MAX_HISTORY_MESSAGES = int(os.getenv("AI_MAX_HISTORY_MESSAGES", "16"))
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
