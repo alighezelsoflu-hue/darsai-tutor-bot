@@ -22,22 +22,6 @@ _FALLBACK: Dict[Tuple[int, str], Dict] = {}
 _LOCK = threading.Lock()
 
 
-def init_premium_db() -> None:
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_premium_waitlist (
-                user_id BIGINT NOT NULL,
-                choice TEXT NOT NULL,
-                source TEXT NOT NULL,
-                language TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY(user_id, choice)
-            );
-        """)
-
-
 def _ordered(choices) -> List[str]:
     picked = set(choices)
     return [choice for choice in CHOICES if choice in picked]

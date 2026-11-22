@@ -9,17 +9,14 @@ from telegram.error import TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
-from modules.activity import init_activity_db, init_first_seen_db
-from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
+from modules.alerts import init_sentry, register_alert_handlers, scrub_console_logs, start_alerts, stop_alerts
+from modules.ai import ai_callback_handler, register_ai_handlers
 from modules.db import close_pool
-from modules.input_mode import init_input_db
 from modules.math.math import register_math_handlers
-from modules.math.shared import init_math_db
 from modules.i18n import detect_language, t
-from modules.notify import init_notify_db
-from modules.premium import init_premium_db
+from modules.migrations import migrate
+from modules.privacy import drop_kept_usage
 from modules.stats import register_stats_handlers
-from modules.student import init_setup_db, init_student_db
 from modules.ui.core import Screen
 from modules.ui.home import home_view
 from modules.ui.router import register_fallback_handlers, register_ui_handlers
@@ -28,6 +25,10 @@ logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", le
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("darsai")
+# No secret (the bot token is in every Telegram API URL) may reach the console, which is Render's log.
+scrub_console_logs()
+# Before anything else can fail. Off while SENTRY_DSN is empty. Alerts to the admins start with the bot.
+init_sentry()
 
 if not TOKEN:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN environment variable.")
@@ -60,7 +61,8 @@ def help_text() -> str:
         "/plot y=x^2 range -5 5\n"
         "/progress - show progress\n"
         "/aihelp - AI tools\n"
-        "/newchat - clear general AI chat memory\n\n"
+        "/newchat - clear general AI chat memory\n"
+        "/privacy - what the bot saves about you, and deleting it\n\n"
         "Tutor languages:\n"
         "/math_tutor fa high_school quadratics explain quadratic formula"
     )
@@ -85,10 +87,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def setup_bot_commands() -> None:
-    """Telegram's "/" menu shows only /start and /help. Every other command still works when typed."""
+    """Telegram's "/" menu shows /start, /help and /privacy. Every other command still works when typed.
+
+    /privacy must be in the menu: Telegram's "Privacy Policy" in the bot's profile opens it only then.
+    """
     for language_code in (None, "fa"):
         lang = language_code or "en"
-        commands = [BotCommand("start", t(lang, "command.start")), BotCommand("help", t(lang, "command.help"))]
+        commands = [
+            BotCommand("start", t(lang, "command.start")),
+            BotCommand("help", t(lang, "command.help")),
+            BotCommand("privacy", t(lang, "command.privacy")),
+        ]
         await telegram_app.bot.set_my_commands(commands, language_code=language_code)
 
 
@@ -118,6 +127,7 @@ def register_handlers() -> None:
     telegram_app.add_handler(CommandHandler("help", help_command))
     register_ai_handlers(telegram_app)
     register_math_handlers(telegram_app)
+    register_alert_handlers(telegram_app)
     telegram_app.add_handler(CallbackQueryHandler(ai_callback_handler, pattern=r"^ai:"))
     register_fallback_handlers(telegram_app)  # last: answers buttons nothing above knows
     telegram_app.add_error_handler(error_handler)
@@ -127,22 +137,18 @@ register_handlers()
 
 
 def init_databases() -> None:
-    """Blocking. Create every table once at startup."""
-    init_ai_db()
-    init_math_db()
-    init_student_db()
-    init_input_db()
-    init_activity_db()
-    init_premium_db()
-    init_notify_db()
-    init_first_seen_db()  # after the others: the first time, it copies in the students the other tables know
-    init_setup_db()  # last: the first time, it marks every student in darsai_first_seen as set up
+    """Blocking. Bring the database schema up to date at startup (modules/migrations.py), then remove the
+    past days' tutor-message counts that Delete my data kept for the daily limit (modules/privacy.py).
+    """
+    migrate()
+    drop_kept_usage()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await asyncio.to_thread(init_databases)
     await telegram_app.initialize()
+    await start_alerts(telegram_app.bot)
     await telegram_app.start()
     await setup_bot_commands()
     await setup_bot_descriptions()
@@ -155,6 +161,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await stop_alerts()  # alerts still being sent
         await telegram_app.stop()
         await telegram_app.shutdown()
         await asyncio.to_thread(close_pool)

@@ -5,3 +5,5 @@ httpx==0.28.1
 pillow==11.1.0
 psycopg[binary,pool]==3.3.9
 psycopg-pool==3.3.3
+# Only imported when SENTRY_DSN is set.
+sentry-sdk==2.74.0

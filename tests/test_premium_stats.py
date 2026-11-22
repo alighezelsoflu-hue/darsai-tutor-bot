@@ -10,7 +10,7 @@ from telegram.ext import TypeHandler
 
 import config
 import main
-from modules import activity, ai, premium, stats, student
+from modules import activity, admin, ai, premium, stats, student
 from modules.i18n import t
 from modules.math.shared import record_answer
 from modules.ui import home, router
@@ -260,9 +260,10 @@ class StatsTests(TelegramMocks):
 
     def setUp(self):
         super().setUp()
-        patcher = patch.object(stats, "ADMIN_USER_IDS", frozenset({self.ADMIN}))
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for module in (stats, admin):
+            patcher = patch.object(module, "ADMIN_USER_IDS", frozenset({self.ADMIN}))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def ask(self, user_id=ADMIN, chat_type="private"):
         self.reply_text.reset_mock()
@@ -283,10 +284,10 @@ class StatsTests(TelegramMocks):
         self.assertIn("1 admin user id(s)", logs.output[1])
 
     def test_others_get_no_reply_and_the_log_shows_their_id(self):
-        with self.assertLogs("modules.stats", "INFO") as logs:
+        with self.assertLogs("modules.admin", "INFO") as logs:
             self.assertIsNone(self.ask(user_id=STUDENT))
-        self.assertIn(f"user id {STUDENT}", logs.output[0])
-        with self.assertLogs("modules.stats", "INFO"):
+        self.assertIn(f"Ignored /stats from user id {STUDENT}", logs.output[0])
+        with self.assertLogs("modules.admin", "INFO"):
             self.assertIsNone(self.ask(chat_type="supergroup"), "admins only in a private chat")
 
     def test_the_numbers(self):

@@ -3,7 +3,7 @@
 New students (/start in a private chat, setup not done) answer three questions in one message: language,
 level, first course. The last answer sends "✅ All set!" with the bottom keyboard and opens the course they
 picked (a 🔜 course opens its 🔜 screen). Students the bot knew before the setup questions existed are
-marked as done (student.init_setup_db), so they never see them.
+marked as done (migration 1 in modules/migrations.py), so they never see them.
 
 Students who have done setup get the current bottom keyboard ([🏠 Menu] [▶️ Continue]) once, with a short
 notice, the next time they use the bot in a private chat (keyboard_notice, before the screens). /start's

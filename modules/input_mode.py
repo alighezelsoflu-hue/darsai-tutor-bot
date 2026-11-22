@@ -18,21 +18,6 @@ _FALLBACK: Dict[Tuple[int, int], Dict] = {}
 _LOCK = threading.Lock()
 
 
-def init_input_db() -> None:
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_input_mode (
-                chat_id BIGINT NOT NULL,
-                user_id BIGINT NOT NULL,
-                state JSONB NOT NULL,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY(chat_id, user_id)
-            );
-        """)
-
-
 def set_input_mode(chat_id: int, user_id: int, state: Dict) -> None:
     """Start a new input mode, replacing any other."""
     if db_configured():

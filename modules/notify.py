@@ -18,21 +18,6 @@ _FALLBACK: Dict[Tuple[int, str], Dict] = {}
 _LOCK = threading.Lock()
 
 
-def init_notify_db() -> None:
-    if not db_configured():
-        return
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS darsai_course_notify (
-                user_id BIGINT NOT NULL,
-                course TEXT NOT NULL,
-                language TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY(user_id, course)
-            );
-        """)
-
-
 def wants_notice(user_id: int, course: str) -> bool:
     if db_configured():
         with connection() as conn, conn.cursor() as cur:
