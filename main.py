@@ -10,7 +10,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
 from modules.activity import init_activity_db, init_first_seen_db
-from modules.alerts import init_sentry, register_alert_handlers, start_alerts, stop_alerts
+from modules.alerts import init_sentry, register_alert_handlers, scrub_console_logs, start_alerts, stop_alerts
 from modules.ai import ai_callback_handler, init_ai_db, register_ai_handlers
 from modules.db import close_pool
 from modules.input_mode import init_input_db
@@ -29,6 +29,8 @@ logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", le
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("darsai")
+# No secret (the bot token is in every Telegram API URL) may reach the console, which is Render's log.
+scrub_console_logs()
 # Before anything else can fail. Off while SENTRY_DSN is empty. Alerts to the admins start with the bot.
 init_sentry()
 

@@ -19,6 +19,10 @@ itself, so they come from the bot that had the error (production, staging or the
 A failure to send an alert is logged at WARNING by this module, and nothing this module logs, or anything
 logged while an alert is being sent, ever becomes an alert, so alerts can't loop.
 
+The console log (stdout and stderr, which is Render's log) is scrubbed the same way: scrub_console_logs()
+wraps the formatter of every handler on the root and uvicorn loggers, and of uncaught exceptions, so no
+secret reaches it by any path, tracebacks included.
+
 /alerttest (admins only, the same check as /stats) raises a test error to check all of this.
 """
 
@@ -26,6 +30,7 @@ import asyncio
 import contextvars
 import logging
 import re
+import sys
 import threading
 import time
 import traceback
@@ -53,6 +58,9 @@ BOT_TOKEN_PATTERN = re.compile(r"\d{5,}:[A-Za-z0-9_-]{30,}")
 URL_PASSWORD_PATTERN = re.compile(r"([a-z][a-z0-9+.-]*://[^:/?#\s@]*:)[^@\s/]+@", re.IGNORECASE)
 # Breadcrumbs of outgoing HTTP requests: their URLs contain the bot token or API paths.
 HTTP_BREADCRUMB_CATEGORIES = {"httplib", "httpx", "http", "requests", "urllib3"}
+
+# /alerttest puts this in its error: it looks like a bot token, so the alert and the log must show [redacted].
+FAKE_TOKEN = "123456789:ThisIsNotARealTokenItOnlyLooksLikeOne"
 
 # Set while an alert is being sent: anything logged meanwhile (e.g. by the Telegram library) is no alert.
 _sending: contextvars.ContextVar[bool] = contextvars.ContextVar("darsai_alert_sending", default=False)
@@ -123,6 +131,38 @@ def describe(record: logging.LogRecord) -> Tuple[Tuple[str, ...], List[str]]:
     lines.append(shorten(scrub(f"Log ({record.name}): {message}")))
     lines.append(datetime.fromtimestamp(record.created, timezone.utc).strftime("Time: %Y-%m-%d %H:%M UTC"))
     return kind, lines
+
+
+# ------------------------------------------------------------
+# The console log
+# ------------------------------------------------------------
+
+class ScrubbingFormatter(logging.Formatter):
+    """Wraps a handler's formatter: the whole formatted record, traceback included, goes through scrub()."""
+
+    def __init__(self, inner: Optional[logging.Formatter] = None):
+        super().__init__()
+        self.inner = inner or logging.Formatter()
+
+    def format(self, record: logging.LogRecord) -> str:
+        return scrub(self.inner.format(record))
+
+
+def _print_scrubbed(exc_type, exc, tb) -> None:
+    sys.stderr.write(scrub("".join(traceback.format_exception(exc_type, exc, tb))))
+
+
+def scrub_console_logs() -> None:
+    """Scrub everything the console handlers print, and uncaught exceptions. Idempotent.
+
+    Call right after logging is set up and before init_sentry (Sentry wraps the exception hook it finds).
+    """
+    for name in ("", "uvicorn", "uvicorn.access", "uvicorn.error"):
+        for handler in logging.getLogger(name).handlers:
+            if handler is not admin_alerts and not isinstance(handler.formatter, ScrubbingFormatter):
+                handler.setFormatter(ScrubbingFormatter(handler.formatter))
+    sys.excepthook = _print_scrubbed
+    threading.excepthook = lambda args: _print_scrubbed(args.exc_type, args.exc_value, args.exc_traceback)
 
 
 # ------------------------------------------------------------
@@ -312,7 +352,8 @@ def init_sentry() -> bool:
             # Integrations that hook into installed libraries (httpx, FastAPI, …) stay off: they would record
             # request URLs (with the bot token) and webhook bodies (what students sent).
             auto_enabling_integrations=False,
-            integrations=[LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
+            # Warnings become breadcrumbs, errors events. Not INFO: those lines hold user ids.
+            integrations=[LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR)],
             before_send=before_send,
             before_breadcrumb=before_breadcrumb,
         )
@@ -338,8 +379,8 @@ async def alerttest_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "Raising a test error now. Each admin should get an alert in a few seconds. In it, the token check must "
         "say [redacted]. A second /alerttest within ALERT_REPEAT_MINUTES is held back and counted."
     )
-    # The token in the message checks that alerts scrub it.
-    raise AlertTestError(f"This is a test error from /alerttest (token check: {config.TOKEN})")
+    # A fake value shaped like a bot token (never the real one): the alert and the log must both scrub it.
+    raise AlertTestError(f"This is a test error from /alerttest (token check: {FAKE_TOKEN})")
 
 
 def register_alert_handlers(app: Application) -> None:

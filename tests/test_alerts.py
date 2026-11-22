@@ -1,7 +1,9 @@
 """Error alerts: scrubbing, grouping, the Telegram alerts to the admins, /alerttest and the Sentry option."""
 
 import asyncio
+import io
 import logging
+import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, PropertyMock, patch
@@ -75,6 +77,59 @@ class DescribeTests(unittest.TestCase):
         # The same template with other values is the same kind.
         other = logging.LogRecord("modules.ai", logging.ERROR, __file__, 7, "AI request failed: %s", ("timeout",), None, func="log_ai_error")
         self.assertEqual(alerts.describe(other)[0], kind)
+
+
+class ConsoleLogTests(unittest.TestCase):
+    """No secret reaches the console (Render's log), whatever path it takes."""
+
+    def capture(self, logger_name=""):
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        logger = logging.getLogger(logger_name)
+        logger.addHandler(handler)
+        self.addCleanup(logger.removeHandler, handler)
+        alerts.scrub_console_logs()
+        return stream
+
+    def test_main_scrubs_its_console_handler(self):
+        handlers = [h for h in logging.getLogger().handlers if h is not alerts.admin_alerts]
+        self.assertTrue(handlers)
+        for handler in handlers:
+            self.assertIsInstance(handler.formatter, alerts.ScrubbingFormatter)
+
+    def test_an_exception_with_the_token_is_scrubbed_with_its_traceback(self):
+        stream = self.capture()
+        try:
+            raise RuntimeError(f"failed with {config.TOKEN} and {REAL_LOOKING_TOKEN}")
+        except RuntimeError:
+            logging.getLogger("darsai").exception("Error while calling https://api.telegram.org/bot%s/getMe", config.TOKEN)
+        output = stream.getvalue()
+        self.assertIn("Traceback", output)
+        self.assertIn("RuntimeError: failed with [redacted] and [redacted]", output)
+        self.assertIn("https://api.telegram.org/bot[redacted]/getMe", output)
+        for secret in (config.TOKEN, REAL_LOOKING_TOKEN):
+            self.assertNotIn(secret, output)
+
+    def test_uvicorn_access_lines_hide_a_custom_webhook_path(self):
+        with patch.object(config, "SECRET_PATH", "hook-9f8e7d6c5b"):
+            stream = self.capture("uvicorn.access")
+            logging.getLogger("uvicorn.access").warning('1.2.3.4 - "POST /hook-9f8e7d6c5b HTTP/1.1" 200')
+        self.assertIn('"POST /[redacted] HTTP/1.1"', stream.getvalue())
+
+    def test_uncaught_exceptions_are_scrubbed(self):
+        alerts.scrub_console_logs()
+        try:
+            raise RuntimeError(f"crash with {config.TOKEN}")
+        except RuntimeError:
+            exc_info = sys.exc_info()
+        with patch.object(sys, "stderr", io.StringIO()) as stderr:
+            sys.excepthook(*exc_info)
+        self.assertIn("RuntimeError: crash with [redacted]", stderr.getvalue())
+        self.assertNotIn(config.TOKEN, stderr.getvalue())
+
+    def test_the_fake_token_looks_like_a_token(self):
+        self.assertEqual(alerts.scrub(alerts.FAKE_TOKEN), "[redacted]")
 
 
 class AdminAlertTests(unittest.TestCase):
@@ -194,21 +249,33 @@ class AlertTestCommandTests(TelegramMocks):
             logging.getLogger(name).removeHandler(alerts.admin_alerts)
         alerts.admin_alerts.reset()
 
-    def process(self, update):
+    def process(self, update, quiet=True):
         async def scenario():
             await alerts.start_alerts(main.telegram_app.bot)
             await main.telegram_app.process_update(update)
             await asyncio.sleep(0)
             await alerts.stop_alerts()
-        with self.assertLogs(level="INFO") as logs:
+        if not quiet:
             asyncio.run(scenario())
-        return logs.output
+            return
+        # assertLogs replaces the root logger's handlers while it runs, so nothing is printed.
+        with self.assertLogs(level="INFO"):
+            asyncio.run(scenario())
 
     def alerts_sent(self):
         return [call for call in self.send_message.call_args_list if call.args[1].startswith("🚨")]
 
     def test_the_admin_gets_a_scrubbed_alert(self):
-        self.process(text_update("/alerttest", user_id=self.ADMIN))
+        console = io.StringIO()
+        handler = logging.StreamHandler(console)
+        logging.getLogger().addHandler(handler)
+        self.addCleanup(logging.getLogger().removeHandler, handler)
+        alerts.scrub_console_logs()
+        self.process(text_update("/alerttest", user_id=self.ADMIN), quiet=False)
+        # The console (Render's log) shows the error, scrubbed, and never the real token.
+        self.assertIn("AlertTestError: This is a test error from /alerttest (token check: [redacted])", console.getvalue())
+        self.assertNotIn(alerts.FAKE_TOKEN, console.getvalue())
+        self.assertNotIn(config.TOKEN, console.getvalue())
         self.assertIn("Raising a test error now", self.reply_text.call_args_list[0].args[0])
         (alert,) = self.alerts_sent()
         self.assertEqual(alert.args[0], self.ADMIN)
@@ -302,7 +369,8 @@ class SentryTests(unittest.TestCase):
                 self.assertTrue(alerts.init_sentry())
         try:
             log = logging.getLogger("modules.sentry_test")
-            log.info("Sending to https://api.telegram.org/bot%s/sendMessage", REAL_LOOKING_TOKEN)
+            log.info("Ignored /stats from user id %s", 42)  # INFO: no breadcrumb at all
+            log.warning("Retrying https://api.telegram.org/bot%s/sendMessage", REAL_LOOKING_TOKEN)
             try:
                 raise RuntimeError(f"failed with {config.TOKEN}")
             except RuntimeError:
@@ -314,5 +382,12 @@ class SentryTests(unittest.TestCase):
         payload = "".join(item.payload.get_bytes().decode("utf-8", "replace") for envelope in envelopes for item in envelope.items)
         self.assertIn("RuntimeError", payload)
         self.assertIn("[redacted]", payload)
+        (event,) = [item.payload.json for envelope in envelopes for item in envelope.items if item.type == "event"]
+        self.assertEqual(event["exception"]["values"][0]["value"], "failed with [redacted]")
+        # Only the warning became a breadcrumb (INFO lines hold user ids), scrubbed.
+        self.assertEqual([crumb["message"] for crumb in event["breadcrumbs"]["values"]],
+                         ["Retrying https://api.telegram.org/bot[redacted]/sendMessage"])
+        self.assertNotIn("request", event)
+        self.assertNotIn("user", event)
         for secret in (config.TOKEN, REAL_LOOKING_TOKEN):
             self.assertNotIn(secret, payload)
