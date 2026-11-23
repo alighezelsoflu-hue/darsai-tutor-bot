@@ -15,7 +15,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import courses, groups, home, learn, practice, premium, privacy, progress, setup, tools, typed
+from . import courses, groups, home, learn, miniapp, practice, premium, privacy, progress, setup, tools, typed
 from .core import CALLBACK_PREFIX, Screen, unpack
 
 Route = Callable[[Screen, List[str]], Awaitable[None]]
@@ -30,6 +30,7 @@ ROUTES: Dict[str, Route] = {
     "prog": progress.progress_route,
     "prem": premium.premium_route,
     "priv": privacy.privacy_route,
+    "app": miniapp.app_route,
     # Math screens from before courses (buttons in older messages): the same as c:math:<screen>.
     "prac": practice.practice_route,
     "learn": learn.learn_route,
@@ -124,6 +125,7 @@ def register_ui_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("subscribe", premium.subscribe_command))
     app.add_handler(CommandHandler("privacy", privacy.privacy_command))
     app.add_handler(CommandHandler("deletemydata", privacy.delete_command))
+    app.add_handler(CommandHandler("app", miniapp.app_command))
     app.add_handler(CallbackQueryHandler(callback_router, pattern=rf"^{CALLBACK_PREFIX}:"))
     app.add_handler(CallbackQueryHandler(old_button, pattern=OLD_BUTTON_PATTERN))
     app.add_handler(ChatMemberHandler(groups.bot_added, ChatMemberHandler.MY_CHAT_MEMBER))

@@ -96,6 +96,19 @@ NETWORK_ALERT_WINDOW_MINUTES = _int_env("NETWORK_ALERT_WINDOW_MINUTES", 10, mini
 SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
 SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "").strip() or "production"
 
+# Mini App (modules/miniapp.py, modules/webapp.py, ui/miniapp.py). Step 1 is a reachability test: only the admins and
+# MINIAPP_TESTER_IDS get the 📚 menu button and /app. MINIAPP_URL is the page's public HTTPS address: empty means
+# WEBHOOK_URL + /app (the same Render service), "off" turns the buttons off (run_local.py sets it from
+# LOCAL_MINIAPP_URL, or "off"). Telegram's signed launch data older than MINIAPP_AUTH_MAX_AGE_SECONDS is refused.
+MINIAPP_TESTER_IDS, _ignored_testers = parse_admin_ids(os.getenv("MINIAPP_TESTER_IDS", ""))
+SETTING_WARNINGS.extend(f"MINIAPP_TESTER_IDS: ignored {part!r}, because it isn't a Telegram user id." for part in _ignored_testers)
+_miniapp_url = os.getenv("MINIAPP_URL", "").strip()
+if _miniapp_url.lower() == "off":
+    MINIAPP_URL = ""
+else:
+    MINIAPP_URL = _miniapp_url or (f"{WEBHOOK_URL.rstrip('/')}/app" if WEBHOOK_URL else "")
+MINIAPP_AUTH_MAX_AGE_SECONDS = _int_env("MINIAPP_AUTH_MAX_AGE_SECONDS", 3600, minimum=60)
+
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 # How long a migration waits for a table lock (e.g. a busy table it ALTERs) before it gives up and startup stops.

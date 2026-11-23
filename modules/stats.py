@@ -23,7 +23,7 @@ from telegram.constants import ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes, TypeHandler
 
 from config import ADMIN_USER_IDS, ADMIN_USER_IDS_IGNORED, BOT_NAME, FREE_DAILY_AI_LIMIT
-from modules import activity, ai, metrics, notify, premium, student
+from modules import activity, ai, metrics, miniapp, notify, premium, student
 from modules.admin import admin_command
 from modules.courses import COURSES
 from modules.db import connection, db_configured
@@ -107,6 +107,7 @@ def collect_stats(today: date, admins=ADMIN_USER_IDS) -> Dict:
         "today": today, "week": week, "limit": limit, "admins": len(admins),
         "waitlist": premium.waitlist_summary(exclude=admins),
         "notify": notify.notice_summary(exclude=admins),
+        "miniapp": miniapp.ping_summary(today, exclude=admins),
     }
     if db_configured():
         stats.update(_collect_from_database(today, week, limit, admins))
@@ -244,6 +245,10 @@ def _students(count: int) -> str:
     return f"{count:,} student" + ("" if count == 1 else "s")
 
 
+def _testers(count: int) -> str:
+    return f"{count:,} tester" + ("" if count == 1 else "s")
+
+
 def format_stats(stats: Dict) -> str:
     def periods(numbers: Dict) -> str:
         return f"Today: {numbers['today']:,} · Last {WEEK_DAYS} days: {numbers['week']:,} · All time: {numbers['total']:,}"
@@ -291,6 +296,13 @@ def format_stats(stats: Dict) -> str:
         f"{COURSES[course].emoji} {COURSES[course].name('en')}: {count:,}"
         for course, count in stats["notify"]["courses"].items()
     ]
+    app = stats.get("miniapp")
+    if app:
+        def opens(numbers: Dict) -> str:
+            load = f", median load {numbers['median_ms']:,} ms" if numbers["median_ms"] is not None else ""
+            return (f"{numbers['opens']:,} opens by {_testers(numbers['testers'])}{load}, "
+                    f"❌ didn't open {numbers['failures']:,}")
+        lines += ["", f"📱 Mini App test, today: {opens(app['today'])}", f"Last {WEEK_DAYS} days: {opens(app['week'])}"]
     since = stats["counting_since"] or stats["today"]
     if since > stats["week"]:
         lines += [

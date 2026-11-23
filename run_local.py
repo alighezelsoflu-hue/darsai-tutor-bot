@@ -63,6 +63,8 @@ def prepare_environment() -> None:
     os.environ["TELEGRAM_BOT_TOKEN"] = token
     os.environ["DATABASE_URL"] = os.environ.get("LOCAL_DATABASE_URL", "").strip()
     os.environ["WEBHOOK_URL"] = PLACEHOLDER_WEBHOOK_URL
+    # The Mini App needs a public HTTPS address: a tunnel to the local page server (see main()). Empty: no 📚 button.
+    os.environ["MINIAPP_URL"] = os.environ.get("LOCAL_MINIAPP_URL", "").strip() or "off"
 
 
 async def ensure_not_production(bot) -> None:
@@ -78,6 +80,23 @@ async def ensure_not_production(bot) -> None:
         )
 
 
+def serve_miniapp_pages() -> None:
+    """The Mini App's page and API (main.api) on LOCAL_MINIAPP_PORT, for a tunnel to reach (LOCAL_MINIAPP_URL).
+
+    In a background thread, without main.api's startup: that would register a webhook on the test bot.
+    """
+    import threading
+
+    import uvicorn
+
+    from main import api
+
+    port = int(os.environ.get("LOCAL_MINIAPP_PORT", "8080") or 8080)
+    server = uvicorn.Server(uvicorn.Config(api, host="127.0.0.1", port=port, lifespan="off", loop="asyncio", log_level="warning"))
+    threading.Thread(target=server.run, name="miniapp-pages", daemon=True).start()
+    logger.info("📚 Mini App pages on http://127.0.0.1:%d/app, opened through %s", port, os.environ.get("MINIAPP_URL"))
+
+
 def main() -> None:
     if sys.version_info < (3, 10):
         sys.exit("DarsAI needs Python 3.10 or newer (python-telegram-bot 22). See README.md.")
@@ -88,6 +107,7 @@ def main() -> None:
 
     from main import init_databases, setup_bot_commands, setup_bot_descriptions, telegram_app
     from modules.alerts import start_alerts, stop_alerts
+    from modules.ui.miniapp import setup_menu_buttons
     from modules import metrics
     from modules.db import close_pool, db_configured
 
@@ -97,6 +117,9 @@ def main() -> None:
         await asyncio.to_thread(init_databases)
         await setup_bot_commands()
         await setup_bot_descriptions()
+        if os.environ.get("MINIAPP_URL", "off") != "off":
+            serve_miniapp_pages()
+        await setup_menu_buttons(app.bot)
         storage = "PostgreSQL (LOCAL_DATABASE_URL)" if db_configured() else "in-memory (lost on exit)"
         logger.info("Polling as @%s. Storage: %s. Press Ctrl+C to stop.", app.bot.username, storage)
         logger.info("Started: %s.", metrics.describe())
