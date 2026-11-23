@@ -10,8 +10,12 @@ from telegram import BotCommand, Update
 from telegram.error import TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
+import config
 from config import BOT_NAME, SECRET_PATH, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
-from modules.alerts import init_sentry, register_alert_handlers, scrub_console_logs, start_alerts, stop_alerts
+from modules.alerts import (
+    blip_text, connection_blips, init_sentry, is_connection_blip, register_alert_handlers, scrub_console_logs,
+    start_alerts, stop_alerts,
+)
 from modules.ai import ai_callback_handler, register_ai_handlers
 from modules.db import close_pool
 from modules.math.math import register_math_handlers
@@ -78,6 +82,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if is_connection_blip(context.error):
+        # A moment without Telegram, or its flood control: the library retries, or the next update works. One
+        # WARNING line without a traceback, so no alert, and no "something went wrong" for the student (that
+        # message would most likely fail too). Only NETWORK_ALERT_THRESHOLD of them within
+        # NETWORK_ALERT_WINDOW_MINUTES are an ERROR, and so one alert.
+        count, unreachable = connection_blips.note()
+        minutes, what = config.NETWORK_ALERT_WINDOW_MINUTES, blip_text(context.error)
+        logger.warning("Telegram connection blip: %s (%d in the last %d min)", what, count, minutes)
+        if unreachable:
+            logger.error("Telegram unreachable: %d connection errors in the last %d min (last: %s)", count, minutes, what)
+        return
     logger.error("Error while handling an update", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
         # The language from Telegram only: the database may be what failed.

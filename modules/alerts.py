@@ -19,6 +19,11 @@ itself, so they come from the bot that had the error (production, staging or the
 A failure to send an alert is logged at WARNING by this module, and nothing this module logs, or anything
 logged while an alert is being sent, ever becomes an alert, so alerts can't loop.
 
+A moment without Telegram (NetworkError, TimedOut) or its flood control (RetryAfter) is no alert: the library
+retries, or the next update works, and nobody can act on it. main.error_handler logs it as one WARNING line
+(is_connection_blip, blip_text). Only NETWORK_ALERT_THRESHOLD of them within NETWORK_ALERT_WINDOW_MINUTES
+(connection_blips, per process) are logged as one ERROR, "Telegram unreachable", which is alerted as usual.
+
 The console log (stdout and stderr, which is Render's log) is scrubbed the same way: scrub_console_logs()
 wraps the formatter of every handler on the root and uvicorn loggers, and of uncaught exceptions, so no
 secret reaches it by any path, tracebacks included.
@@ -34,11 +39,13 @@ import sys
 import threading
 import time
 import traceback
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Deque, Dict, List, Optional, Set, Tuple
 
 from telegram import Update
+from telegram.error import BadRequest, NetworkError, RetryAfter
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 import config
@@ -103,15 +110,31 @@ def _relative(filename: str) -> Optional[str]:
         return None
 
 
+def _library(filename: str) -> str:
+    """Whose code a file outside the project is: "the telegram library" (an installed package) or Python's own."""
+    parts = Path(filename).parts
+    for marker in ("site-packages", "dist-packages"):
+        if marker in parts[:-1]:
+            return f"the {Path(parts[parts.index(marker) + 1]).stem} library"
+    return "Python's standard library"
+
+
 def _where(record: logging.LogRecord) -> str:
-    """The last place in our own code: where the exception was raised, else where it was logged."""
+    """The last place in our own code: where the exception was raised, else where it was logged.
+
+    An exception raised without any of our code on the way (e.g. polling Telegram) names the library instead, then
+    where it was logged, so the alert doesn't point at the error handler as if the error were there.
+    """
+    logged_at = f"{_relative(record.pathname) or Path(record.pathname).name}:{record.lineno} in {record.funcName}"
     if record.exc_info and record.exc_info[2] is not None:
-        for frame in reversed(traceback.extract_tb(record.exc_info[2])):
+        frames = traceback.extract_tb(record.exc_info[2])
+        for frame in reversed(frames):
             path = _relative(frame.filename)
             if path:
                 return f"{path}:{frame.lineno} in {frame.name}"
-    path = _relative(record.pathname) or Path(record.pathname).name
-    return f"{path}:{record.lineno} in {record.funcName}"
+        if frames:
+            return f"inside {_library(frames[-1].filename)} (no {BOT_NAME} code); logged at {logged_at}"
+    return logged_at
 
 
 def describe(record: logging.LogRecord) -> Tuple[Tuple[str, ...], List[str]]:
@@ -257,6 +280,73 @@ class AdminAlerts(logging.Handler):
 
 
 admin_alerts = AdminAlerts()
+
+
+# ------------------------------------------------------------
+# Telegram connection blips (main.error_handler)
+# ------------------------------------------------------------
+
+def is_connection_blip(error: Optional[BaseException]) -> bool:
+    """A moment without Telegram (NetworkError, and TimedOut, a kind of it) or its flood control (RetryAfter).
+
+    BadRequest is a NetworkError in python-telegram-bot too, but it is a mistake in our request (e.g. a message
+    that can't be edited any more), so it stays a normal error.
+    """
+    if isinstance(error, RetryAfter):
+        return True
+    return isinstance(error, NetworkError) and not isinstance(error, BadRequest)
+
+
+def blip_text(error: BaseException) -> str:
+    """E.g. "httpx.ReadError" (python-telegram-bot puts the httpx error in a NetworkError's message) or
+    "TimedOut: Timed out". Scrubbed and cut short."""
+    name = type(error).__name__
+    message = str(error).strip().rstrip(":").strip()
+    if not message:
+        text = name
+    elif name == "NetworkError":
+        text = message
+    else:
+        text = f"{name}: {message}"
+    return shorten(scrub(text), 120)
+
+
+class ConnectionBlips:
+    """Per process: when the recent connection blips were, to tell a blip from Telegram being unreachable."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._times: Deque[float] = deque(maxlen=10_000)
+        self._last_alarm: Optional[float] = None
+
+    def note(self) -> Tuple[int, bool]:
+        """(blips within NETWORK_ALERT_WINDOW_MINUTES, this one included; whether to log "Telegram unreachable").
+
+        True when there are NETWORK_ALERT_THRESHOLD of them, at most once per window: while the trouble lasts, the
+        ERROR comes again each window (and the alert grouping holds back the repeats as usual).
+        """
+        now = time.time()
+        window = config.NETWORK_ALERT_WINDOW_MINUTES * 60
+        with self._lock:
+            self._times.append(now)
+            while now - self._times[0] >= window:
+                self._times.popleft()
+            count = len(self._times)
+            alarm = count >= config.NETWORK_ALERT_THRESHOLD and (
+                self._last_alarm is None or now - self._last_alarm >= window
+            )
+            if alarm:
+                self._last_alarm = now
+            return count, alarm
+
+    def reset(self) -> None:
+        """Forget the blips (tests)."""
+        with self._lock:
+            self._times.clear()
+            self._last_alarm = None
+
+
+connection_blips = ConnectionBlips()
 
 
 def install_log_handler() -> None:
