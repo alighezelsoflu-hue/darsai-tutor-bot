@@ -5,8 +5,12 @@ import io
 import logging
 import sys
 import unittest
+import warnings
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, PropertyMock, patch
+
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 import config
 import main
@@ -77,6 +81,22 @@ class DescribeTests(unittest.TestCase):
         # The same template with other values is the same kind.
         other = logging.LogRecord("modules.ai", logging.ERROR, __file__, 7, "AI request failed: %s", ("timeout",), None, func="log_ai_error")
         self.assertEqual(alerts.describe(other)[0], kind)
+
+    def test_an_exception_without_our_code_names_the_library(self):
+        """E.g. polling Telegram: no DarsAI frame, so not "main.py in error_handler" as if the error were there."""
+        code = "def fetch():\n    raise ValueError('httpx.ReadError')\n\ndef capture():\n    try:\n        fetch()\n    except ValueError as error:\n        return error\n"
+        logged_at = str(alerts.PROJECT_ROOT / "main.py")
+        for library_file, library in (
+            ("/srv/venv/lib/python3.11/site-packages/telegram/_bot.py", "the telegram library"),
+            ("/usr/lib/python3.11/asyncio/base_events.py", "Python's standard library"),
+        ):
+            namespace = {}
+            exec(compile(code, library_file, "exec"), namespace)
+            error = namespace["capture"]()
+            record = logging.LogRecord("darsai", logging.ERROR, logged_at, 81, "Error while handling an update", (),
+                                       (ValueError, error, error.__traceback__), func="error_handler")
+            self.assertEqual(alerts.describe(record)[1][2],
+                             f"Where: inside {library} (no DarsAI code); logged at main.py:81 in error_handler")
 
 
 class ConsoleLogTests(unittest.TestCase):
@@ -224,6 +244,122 @@ class AdminAlertTests(unittest.TestCase):
 
         asyncio.run(scenario())
         self.assertIn("Log (modules.worker_test): Database trouble", self.sent()[0][1])
+
+
+class _Records(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.DEBUG)
+        self.records = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+
+def retry_after(seconds: int) -> RetryAfter:
+    with warnings.catch_warnings():  # python-telegram-bot's own deprecation note about retry_after's type
+        warnings.simplefilter("ignore")
+        return RetryAfter(timedelta(seconds=seconds))
+
+
+class ConnectionBlipTests(TelegramMocks):
+    """main.error_handler: Telegram connection errors are a WARNING, only many of them an ERROR (an alert)."""
+
+    def setUp(self):
+        super().setUp()
+        self.now = 1_000_000.0
+        alerts.connection_blips.reset()
+        self.addCleanup(alerts.connection_blips.reset)
+        for patcher in (
+            patch.multiple(config, ADMIN_USER_IDS=ADMINS, ALERTS_TO_ADMINS=True, ALERT_REPEAT_MINUTES=30,
+                           NETWORK_ALERT_THRESHOLD=5, NETWORK_ALERT_WINDOW_MINUTES=10),
+            patch.object(alerts.time, "time", side_effect=lambda: self.now),
+            patch.object(main.logger, "propagate", False),  # keep the console quiet
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        # The real alert handler on main's logger, with its own fake bot; and a list of everything main logs.
+        self.alerts = alerts.AdminAlerts()
+        self.alert_bot = SimpleNamespace(send_message=AsyncMock())
+        self.log = _Records()
+        for handler in (self.alerts, self.log):
+            main.logger.addHandler(handler)
+            self.addCleanup(main.logger.removeHandler, handler)
+
+    def handle(self, *errors, update="message", minutes_apart=0.0):
+        """Each error through main.error_handler, as python-telegram-bot calls it (update None: from polling)."""
+        async def scenario():
+            self.alerts.start(self.alert_bot)
+            for error in errors:
+                current = text_update("hi") if update == "message" else update
+                await main.error_handler(current, SimpleNamespace(bot=main.telegram_app.bot, error=error))
+                self.now += minutes_apart * 60
+            await asyncio.sleep(0)
+            await self.alerts.drain()
+        asyncio.run(scenario())
+
+    def logged(self, level):
+        return [record.getMessage() for record in self.log.records if record.levelno == level]
+
+    def alerts_sent(self):
+        return [call.args[1] for call in self.alert_bot.send_message.call_args_list]
+
+    def test_a_connection_error_is_one_warning_line(self):
+        self.handle(NetworkError("httpx.ReadError: "))
+        self.handle(NetworkError("httpx.ConnectError: "), update=None)
+        self.assertEqual(self.logged(logging.WARNING), [
+            "Telegram connection blip: httpx.ReadError (1 in the last 10 min)",
+            "Telegram connection blip: httpx.ConnectError (2 in the last 10 min)",
+        ])
+        self.assertTrue(all(record.exc_info is None for record in self.log.records), "no traceback")
+        self.assertEqual(self.logged(logging.ERROR), [])
+        self.assertEqual(self.alerts_sent(), [])
+        self.reply_text.assert_not_called()  # no "something went wrong": it would most likely fail too
+
+    def test_timed_out_and_retry_after_are_quiet_too(self):
+        self.handle(TimedOut(), retry_after(7))
+        self.assertEqual(self.logged(logging.WARNING), [
+            "Telegram connection blip: TimedOut: Timed out (1 in the last 10 min)",
+            "Telegram connection blip: RetryAfter: Flood control exceeded. Retry in 7 seconds (2 in the last 10 min)",
+        ])
+        self.assertEqual(self.logged(logging.ERROR), [])
+        self.assertEqual(self.alerts_sent(), [])
+        self.reply_text.assert_not_called()
+
+    def test_five_within_the_window_are_one_alert(self):
+        self.handle(*[NetworkError("httpx.ReadError: ")] * 4, minutes_apart=2)
+        self.assertEqual(self.logged(logging.ERROR), [])
+        self.handle(NetworkError("httpx.ConnectError: "), minutes_apart=1)
+        self.assertEqual(self.logged(logging.ERROR), ["Telegram unreachable: 5 connection errors in the last 10 min (last: httpx.ConnectError)"])
+        sent = self.alerts_sent()
+        self.assertEqual(len(sent), 2, "one alert, to each of the two admins")
+        self.assertIn("Log (darsai): Telegram unreachable: 5 connection errors in the last 10 min", sent[0])
+        # More while it lasts: no new ERROR within the same window.
+        self.handle(*[TimedOut()] * 3, minutes_apart=1)
+        self.assertEqual(len(self.logged(logging.ERROR)), 1)
+        # Still going a window later: one more ERROR (the alert grouping holds that one back as usual).
+        self.handle(*[TimedOut()] * 10, minutes_apart=1)
+        self.assertEqual(len(self.logged(logging.ERROR)), 2)
+        self.assertEqual(len(self.alerts_sent()), 2)
+
+    def test_blips_spread_out_never_alert(self):
+        self.handle(*[NetworkError("httpx.ReadError: ")] * 12, minutes_apart=3)
+        self.assertEqual(self.logged(logging.ERROR), [])
+        self.assertEqual(self.logged(logging.WARNING)[-1], "Telegram connection blip: httpx.ReadError (4 in the last 10 min)")
+        self.assertEqual(self.alerts_sent(), [])
+
+    def test_other_errors_still_alert_and_tell_the_student(self):
+        # BadRequest is a NetworkError in python-telegram-bot, but a mistake in our request: a real error.
+        for error in (BadRequest("Message to edit not found"), RuntimeError("database is down")):
+            self.reply_text.reset_mock()
+            self.handle(error)
+            self.reply_text.assert_called_once()
+        self.assertEqual(self.logged(logging.ERROR), ["Error while handling an update"] * 2)
+        self.assertEqual(self.logged(logging.WARNING), [])
+        sent = self.alerts_sent()
+        self.assertEqual(len(sent), 4, "two kinds of error, each to the two admins")
+        self.assertIn("BadRequest: Message to edit not found", sent[0])
+        self.assertIn("RuntimeError: database is down", sent[2])
+        self.assertEqual(alerts.connection_blips.note(), (1, False), "neither was counted as a blip")
 
 
 class AlertTestCommandTests(TelegramMocks):

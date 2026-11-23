@@ -89,6 +89,10 @@ ADMIN_USER_IDS, ADMIN_USER_IDS_IGNORED = parse_admin_ids(os.getenv("ADMIN_USER_I
 # error at most once per ALERT_REPEAT_MINUTES. Sentry is used too when SENTRY_DSN is set.
 ALERTS_TO_ADMINS = _bool_env("ALERTS_TO_ADMINS", True)
 ALERT_REPEAT_MINUTES = _int_env("ALERT_REPEAT_MINUTES", 30, minimum=1)
+# A moment without Telegram (NetworkError, TimedOut) or its flood control (RetryAfter) is only a WARNING: no alert.
+# NETWORK_ALERT_THRESHOLD of them within NETWORK_ALERT_WINDOW_MINUTES are one ERROR, so one alert (main.error_handler).
+NETWORK_ALERT_THRESHOLD = _int_env("NETWORK_ALERT_THRESHOLD", 5, minimum=1)
+NETWORK_ALERT_WINDOW_MINUTES = _int_env("NETWORK_ALERT_WINDOW_MINUTES", 10, minimum=1)
 SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
 SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "").strip() or "production"
 
