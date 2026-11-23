@@ -259,6 +259,32 @@ def _baseline(cur) -> None:
 
 
 # ------------------------------------------------------------
+# Migration 2: the Mini App reachability test
+# ------------------------------------------------------------
+
+def _miniapp_ping_table(cur) -> None:
+    """Each open of the Mini App (its load timings), and each "❌ It didn't open" (modules/miniapp.py)."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS darsai_miniapp_ping (
+            id BIGSERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            day DATE NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            opened BOOLEAN NOT NULL,
+            platform TEXT,
+            bridge BOOLEAN,
+            dns_ms INTEGER,
+            connect_ms INTEGER,
+            ttfb_ms INTEGER,
+            dom_ms INTEGER,
+            total_ms INTEGER,
+            api_ms INTEGER
+        );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_darsai_miniapp_ping_day ON darsai_miniapp_ping (day);")
+
+
+# ------------------------------------------------------------
 # The list
 # ------------------------------------------------------------
 
@@ -266,6 +292,7 @@ def _baseline(cur) -> None:
 # that is on main.
 MIGRATIONS: List[Tuple[int, str, Callable]] = [
     (1, "baseline: every table as of 2026-11-22", _baseline),
+    (2, "Mini App reachability test: darsai_miniapp_ping", _miniapp_ping_table),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

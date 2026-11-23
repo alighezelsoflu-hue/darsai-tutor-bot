@@ -29,10 +29,13 @@ from Europe, so the GDPR may apply. Please check it with someone qualified.
 | `darsai_premium_waitlist` | User id, Premium pick, where it was picked, interface language, time | The waitlist; announcing Premium in the student's language | Until the pick is removed or deleted |
 | `darsai_course_notify` | User id, coming-soon course, interface language, time | 🔔 Notify me; announcing the course in the student's language | Until deleted (rows for removed courses, e.g. Astrology, stay until then) |
 | `darsai_math_progress` | Chat id, user id, level, topic, counts (old, production only) | Never read or written since mastery existed; copied into `darsai_mastery` once | Until deleted |
+| `darsai_miniapp_ping` | User id, UTC day, time, whether the 📚 Mini App opened (or the tester tapped "❌ It didn't open"), device type (android, ios, tdesktop, …), whether Telegram's channel worked, load timings in ms (DNS, connection, first byte, page ready, total, API) | The Mini App reachability test (step 1): does the app open for students, and how fast; `/stats` | Until deleted. Testers only in step 1 |
 | `darsai_schema_version` | Applied migrations | No personal data | — |
 
 Not stored anywhere: names, usernames, phone numbers, photos, Telegram profile data. In groups the bot shows
-"👤 first name" on a student's menu, read from the update and not saved.
+"👤 first name" on a student's menu, read from the update and not saved. The Mini App's launch data from
+Telegram also contains the name, username and photo address: only the user id (and the language code) is
+used, and nothing of it is stored or logged.
 
 ## Outside the database
 

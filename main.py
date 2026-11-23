@@ -25,7 +25,9 @@ from modules.privacy import drop_kept_usage
 from modules.stats import register_stats_handlers
 from modules.ui.core import Screen
 from modules.ui.home import home_view
+from modules.ui.miniapp import setup_menu_buttons
 from modules.ui.router import register_fallback_handlers, register_ui_handlers
+from modules.webapp import router as webapp_router
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
@@ -169,6 +171,7 @@ async def lifespan(app: FastAPI):
     await telegram_app.start()
     await setup_bot_commands()
     await setup_bot_descriptions()
+    await setup_menu_buttons(telegram_app.bot)  # 📚 Mini App, testers only
     await telegram_app.bot.set_webhook(
         url=FULL_WEBHOOK_URL,
         allowed_updates=Update.ALL_TYPES,
@@ -186,6 +189,7 @@ async def lifespan(app: FastAPI):
 
 
 api = FastAPI(title=f"{BOT_NAME} Telegram Tutor Bot", lifespan=lifespan)
+api.include_router(webapp_router)  # the Mini App: /app and /api/... (modules/webapp.py)
 
 
 @api.get("/")

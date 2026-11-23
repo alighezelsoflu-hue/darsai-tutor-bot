@@ -27,7 +27,7 @@ from typing import Callable, Dict, List, Tuple
 
 from psycopg import sql
 
-from modules import activity, ai, input_mode, notify, premium, student
+from modules import activity, ai, input_mode, miniapp, notify, premium, student
 from modules.db import connection, db_configured
 from modules.math import shared
 
@@ -47,6 +47,7 @@ _MEMORY_STORES: Tuple[Tuple[str, Dict, Callable], ...] = (
     ("notify._FALLBACK", notify._FALLBACK, lambda key: key[0]),                  # (user_id, course)
     ("shared.MASTERY_FALLBACK", shared.MASTERY_FALLBACK, lambda key: key[0]),    # (user_id, level, topic)
     ("shared.ACTIVE_QUESTION_FALLBACK", shared.ACTIVE_QUESTION_FALLBACK, lambda key: key[1]),  # (chat_id, user_id)
+    ("miniapp._FALLBACK", miniapp._FALLBACK, lambda key: key[0]),                # (user_id, n)
 )
 
 

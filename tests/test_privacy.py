@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import config
-from modules import activity, ai, input_mode, notify, premium, privacy, stats, student
+from modules import activity, ai, input_mode, miniapp, notify, premium, privacy, stats, student
 from modules.i18n import t
 from modules.math import shared
 from modules.ui import home, router, setup, typed
@@ -110,6 +110,7 @@ class DeleteTests(TelegramMocks):
         self.press("d1:{u}:c:math:solve", user_id=user_id)  # an input mode
         self.press("d1:{u}:prem:a:photo:m", user_id=user_id)
         self.press("d1:{u}:c:physics:n", user_id=user_id)
+        miniapp.record_open(user_id, {"platform": "android", "total_ms": 900})  # the Mini App test
 
     def stores_of(self, user_id):
         return {name: [k for k in store if user_of(k) == user_id] for name, store, user_of in privacy._MEMORY_STORES}

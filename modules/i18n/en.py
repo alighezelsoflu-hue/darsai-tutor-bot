@@ -58,6 +58,8 @@ STRINGS = {
     "btn.privacy": "🔒 Privacy",
     "btn.delete_data": "🗑 Delete my data",
     "btn.delete_yes": "🗑 Yes, delete everything",
+    "btn.app_open": "📚 Open the app",
+    "btn.app_failed": "❌ It didn't open",
     "btn.clear_yes": "Yes, clear it",
     "btn.cancel": "Cancel",
     "btn.show_solution": "💡 Show solution",
@@ -80,7 +82,7 @@ STRINGS = {
 
     # 🔒 Privacy (⚙️ Settings → 🔒 Privacy, /privacy) and 🗑 Delete my data (/deletemydata)
     "privacy.title": "🔒 Privacy · {bot}",
-    "privacy.stored": "What the bot saves about you, and why:\n• Your Telegram user id, and the chats you use the bot in, so it knows it's you\n• Your language, level and settings\n• Your practice results and progress\n• Your questions to the tutor and its answers, so it remembers the conversation (⚙️ Settings → 🧹 Clear tutor memory deletes them)\n• How many tutor messages you send each day, for the daily limit and our usage numbers. After 🗑 Delete my data, only today's count stays until the end of the day, so the daily limit still works.\n• Your 💎 Premium picks, the courses you tapped 🔔 Notify me for, and the link you found the bot through, if any\n• The days you used the bot, for our usage numbers",
+    "privacy.stored": "What the bot saves about you, and why:\n• Your Telegram user id, and the chats you use the bot in, so it knows it's you\n• Your language, level and settings\n• Your practice results and progress\n• Your questions to the tutor and its answers, so it remembers the conversation (⚙️ Settings → 🧹 Clear tutor memory deletes them)\n• How many tutor messages you send each day, for the daily limit and our usage numbers. After 🗑 Delete my data, only today's count stays until the end of the day, so the daily limit still works.\n• Your 💎 Premium picks, the courses you tapped 🔔 Notify me for, and the link you found the bot through, if any\n• The days you used the bot, for our usage numbers\n• If you test the DarsAI app: each time it opens, how long it takes to load and your kind of device (Android, iPhone or computer)",
     "privacy.not_stored": "It doesn't save your name, username, phone number or photos.",
     "privacy.receivers": "Who else gets data:\n• Your questions to the tutor, with your recent conversation on that topic, go to {ai} (USA), which writes the answers. Without your name or Telegram id.\n• The bot runs on Render (server) and Neon (database) in Frankfurt, Germany. The server's logs can show your Telegram user id for a short time.",
     "privacy.sentry": "• Error reports go to Sentry, without what you send.",
@@ -89,6 +91,19 @@ STRINGS = {
     "privacy.contact": "Questions about your data: {contact}",
     "delete.confirm": "🗑 Delete all your data?\nThis deletes everything the bot saved about you, in every chat: your settings, progress, tutor conversations, picks and usage. It can't be undone.\nOnly today's tutor-message count stays until the end of the day, for the daily limit.\nMessages in your Telegram chats stay until you delete them in Telegram.",
     "delete.done": "✅ Done. Everything the bot saved about you is deleted (only today's tutor-message count stays until the end of the day).\nIf you use the bot again, it starts fresh. Send /start to begin.",
+
+    # 📚 The Mini App (step 1: a reachability test for testers). app.* texts are also used by the page (webapp/).
+    "app.menu_button": "📚 DarsAI",
+    "app.command": "📚 The DarsAI app (test)\nTap the button below to open it. If it doesn't open, or stays blank, tap ❌ It didn't open, so we know. The 📚 button next to the message box opens it too.",
+    "app.unavailable": "📚 The app isn't available right now.",
+    "app.loading": "Loading…",
+    "app.open_in_telegram": "Open DarsAI from Telegram: the 📚 button next to the message box.",
+    "app.reopen": "This page has expired. Close it and open it again from the 📚 button.",
+    "app.offline": "Couldn't reach DarsAI. Check your connection and try again.",
+    "app.retry": "Try again",
+    "app.opened_in": "Opened in {seconds} s",
+    "app.not_started": "Not started yet",
+    "app.topic_detail": "{percent}% · ✅ {correct} · ❌ {wrong}",
 
     # Practice topics and difficulty
     "topic.linear_equations": "Linear equations",
@@ -219,6 +234,7 @@ STRINGS = {
     # Pop-up notices (shown briefly at the top of the chat)
     "toast.saved": "✅ Saved",
     "toast.premium_thanks": "🙏 Thanks!",
+    "toast.app_failed": "🙏 Thanks, noted.",
     "toast.notify_saved": "🔔 Saved. I'll tell you when it's ready.",
     "toast.removed": "Removed",
     "toast.cleared": "✅ Cleared {count} saved messages",

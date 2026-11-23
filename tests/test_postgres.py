@@ -20,7 +20,7 @@ import psycopg
 
 import config
 import main
-from modules import activity, ai, db, input_mode, migrations, notify, premium, privacy, stats, student
+from modules import activity, ai, db, input_mode, migrations, miniapp, notify, premium, privacy, stats, student
 from modules.db import connection
 from modules.i18n import t
 from modules.math import shared
@@ -32,7 +32,7 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
 ALL_TABLES = {
     "darsai_ai_messages", "darsai_ai_usage", "darsai_student", "darsai_user_profile", "darsai_mastery",
     "darsai_active_question", "darsai_input_mode", "darsai_daily_activity", "darsai_premium_waitlist",
-    "darsai_course_notify", "darsai_first_seen", "darsai_schema_version",
+    "darsai_course_notify", "darsai_first_seen", "darsai_schema_version", "darsai_miniapp_ping",
 }
 
 
@@ -96,13 +96,15 @@ class PostgresTests(TelegramMocks):
         with self.assertLogs("modules.migrations", "INFO") as logs:
             main.init_databases()
         self.assertIn("Database migration 1 applied: baseline: every table as of 2026-11-22", logs.output[0])
-        self.assertIn("Database schema version 1.", logs.output[-1])
+        self.assertIn("Database migration 2 applied: Mini App reachability test: darsai_miniapp_ping", logs.output[1])
+        self.assertIn("Database schema version 2.", logs.output[-1])
         with self.assertLogs("modules.migrations", "INFO") as logs:
             main.init_databases()
         self.assertEqual(len(logs.output), 1, "nothing to apply the second time")
         self.assertEqual(self.tables(), ALL_TABLES)
         self.assertEqual(execute("SELECT COUNT(*) FROM darsai_student"), [(0,)])
-        self.assertEqual(execute("SELECT version, name FROM darsai_schema_version"), [(1, "baseline: every table as of 2026-11-22")])
+        self.assertEqual(execute("SELECT version, name FROM darsai_schema_version ORDER BY version"), [
+            (1, "baseline: every table as of 2026-11-22"), (2, "Mini App reachability test: darsai_miniapp_ping")])
 
     def test_production_today_only_records_version_1(self):
         older_database()  # the schema production has now, without darsai_schema_version
@@ -111,9 +113,10 @@ class PostgresTests(TelegramMocks):
         student.set_language(2, "en")  # a new student in the middle of setup
         shared.record_answer(1, "high_school", "algebra", "easy", "first_try")
         activity.mark_active(3, source="insta")
-        before = {table: execute(f"SELECT COUNT(*) FROM {table}") for table in ALL_TABLES - {"darsai_schema_version"}}
+        before = {table: execute(f"SELECT COUNT(*) FROM {table}") for table in self.tables()}
         main.init_databases()
-        self.assertEqual(migrations.schema_version(), 1)
+        self.assertEqual(migrations.schema_version(), 2)
+        self.assertEqual(self.tables() - set(before), {"darsai_schema_version", "darsai_miniapp_ping"})
         self.assertEqual({table: execute(f"SELECT COUNT(*) FROM {table}") for table in before}, before)
         self.assertEqual(student.get_student(2)["setup_done"], False, "still gets the setup questions")
         self.assertEqual(student.get_student(1)["keyboard_version"], 1)
@@ -196,8 +199,9 @@ class PostgresTests(TelegramMocks):
             for thread in threads:
                 thread.join()
         self.assertEqual(errors, [])
-        self.assertEqual(execute("SELECT version FROM darsai_schema_version"), [(1,)])
+        self.assertEqual(execute("SELECT version FROM darsai_schema_version ORDER BY version"), [(1,), (2,)])
         self.assertEqual(sum("migration 1 applied" in line for line in logs.output), 1)
+        self.assertEqual(sum("migration 2 applied" in line for line in logs.output), 1)
 
     def test_a_failed_migration_leaves_nothing_behind(self):
         main.init_databases()
@@ -209,14 +213,14 @@ class PostgresTests(TelegramMocks):
         def fixed(cur):
             cur.execute("CREATE TABLE darsai_half_done (id INTEGER)")
 
-        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(2, "test", broken)]):
+        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(3, "test", broken)]):
             with self.assertRaises(RuntimeError):
                 migrations.migrate()
-        self.assertEqual(migrations.schema_version(), 1)
+        self.assertEqual(migrations.schema_version(), 2)
         self.assertNotIn("darsai_half_done", self.tables())
-        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(2, "test", fixed)]), \
-                patch.object(migrations, "LATEST_VERSION", 2):
-            self.assertEqual(migrations.migrate(), 2)
+        with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(3, "test", fixed)]), \
+                patch.object(migrations, "LATEST_VERSION", 3):
+            self.assertEqual(migrations.migrate(), 3)
         self.assertIn("darsai_half_done", self.tables())
 
     def test_a_migration_waiting_for_a_busy_table_gives_up(self):
@@ -225,7 +229,7 @@ class PostgresTests(TelegramMocks):
         def alter_student(cur):
             cur.execute("ALTER TABLE darsai_student ADD COLUMN darsai_test_column INTEGER")
 
-        added = patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(2, "test", alter_student)])
+        added = patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [(3, "test", alter_student)])
         with connection() as busy, busy.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM darsai_student")  # a transaction that is still reading the table
             with added, patch.object(config, "MIGRATION_LOCK_TIMEOUT_SECONDS", 1):
@@ -236,19 +240,19 @@ class PostgresTests(TelegramMocks):
         # The timeout was only for the migration's transaction: no pooled connection keeps it.
         for _ in range(3):
             self.assertEqual(execute("SELECT current_setting('lock_timeout')"), [("0",)])
-        self.assertEqual(migrations.schema_version(), 1)
+        self.assertEqual(migrations.schema_version(), 2)
         columns = execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'darsai_student'")
         self.assertNotIn(("darsai_test_column",), columns)
         # Once the table is free, the next start applies it.
-        with added, patch.object(migrations, "LATEST_VERSION", 2):
-            self.assertEqual(migrations.migrate(), 2)
+        with added, patch.object(migrations, "LATEST_VERSION", 3):
+            self.assertEqual(migrations.migrate(), 3)
 
     def test_a_newer_database_is_a_warning(self):
         main.init_databases()
         execute("INSERT INTO darsai_schema_version (version, name) VALUES (99, 'from a newer deploy')")
         with self.assertLogs("modules.migrations", "WARNING") as logs:
             self.assertEqual(migrations.migrate(), 99)
-        self.assertIn("newer than this code knows (1)", logs.output[0])
+        self.assertIn("newer than this code knows (2)", logs.output[0])
 
     # ---------------------------------------------------------------- storage
 
@@ -387,6 +391,7 @@ class PostgresTests(TelegramMocks):
         notify.add_notice(user_id, "biology", "fa")
         execute("INSERT INTO darsai_user_profile (chat_id, user_id, level) VALUES (%s, %s, 'high_school')", (user_id, user_id))
         execute("INSERT INTO darsai_math_progress VALUES (%s, %s, 'high_school', 'algebra', 1, 1)", (user_id, user_id))
+        miniapp.record_open(user_id, {"platform": "android", "total_ms": 900})
 
     def rows_of(self, user_id):
         tables = sorted(self.tables() - {"darsai_schema_version"}) + ["darsai_math_progress"]
@@ -439,6 +444,34 @@ class PostgresTests(TelegramMocks):
         ai.reserve_ai_message(6)
         privacy.drop_kept_usage()
         self.assertEqual(execute("SELECT COUNT(*) FROM darsai_ai_usage WHERE user_id = 6 AND day = %s", (ai._today(),)), [(1,)])
+
+    # ---------------------------------------------------------------- the Mini App
+
+    def test_miniapp_opens_and_failures_on_postgres(self):
+        main.init_databases()
+        miniapp.record_open(5, {"platform": "ios", "bridge": True, "ttfb_ms": 300, "total_ms": 1200, "api_ms": 400,
+                                "first_name": "Sara", "extra": "x" * 100})
+        miniapp.record_open(5, {"platform": "android", "total_ms": 800})
+        miniapp.record_open(6, {"platform": "weird-device", "total_ms": -5})
+        miniapp.record_failure(7)
+        miniapp.record_open(99, {"total_ms": 100})  # an admin
+        rows = execute("SELECT user_id, opened, platform, bridge, ttfb_ms, total_ms FROM darsai_miniapp_ping ORDER BY id")
+        self.assertEqual(rows[0], (5, True, "ios", True, 300, 1200))
+        self.assertEqual(rows[2], (6, True, "other", False, None, 0))
+        self.assertEqual(rows[3], (7, False, None, None, None, None))
+        summary = miniapp.ping_summary(activity.utc_today(), exclude=[99])
+        self.assertEqual(summary["today"], {"opens": 3, "testers": 2, "median_ms": 800, "failures": 1})
+        self.assertEqual(summary["week"], summary["today"])
+        text = stats.format_stats(stats.collect_stats(activity.utc_today(), admins=[99]))
+        self.assertIn("📱 Mini App test, today: 3 opens by 2 testers, median load 800 ms, ❌ didn't open 1", text)
+        # At most MAX_PINGS_PER_USER_PER_DAY rows per user a day (opens and failures together).
+        for _ in range(miniapp.MAX_PINGS_PER_USER_PER_DAY - 1):
+            self.assertTrue(miniapp.record_failure(7))
+        self.assertFalse(miniapp.record_open(7, {"total_ms": 1}))
+        self.assertFalse(miniapp.record_failure(7))
+        self.assertEqual(execute("SELECT COUNT(*) FROM darsai_miniapp_ping WHERE user_id = 7"), [(miniapp.MAX_PINGS_PER_USER_PER_DAY,)])
+        execute("UPDATE darsai_miniapp_ping SET day = day - 1 WHERE user_id = 7")
+        self.assertTrue(miniapp.record_open(7, {"total_ms": 1}), "a new day")
 
     def test_delete_my_data_is_all_or_nothing(self):
         main.init_databases()
