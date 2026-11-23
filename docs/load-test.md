@@ -102,3 +102,35 @@ What the two runs show:
    (0.8–1.6 s median).
 
 These numbers are from a laptop and are for comparison between versions, not a promise for Render.
+
+## Phase 1 step 8 (AI capacity), 2026-11-23
+
+Branch `p1-ai-capacity` on develop `21bd6cf`. The same laptop and the normal load (`--students 200 --ramp 20
+--think 5`, Telegram 60 ms, AI answers 1.5 s, pool 5). The report now also counts "tutor busy" replies. CPU was
+measured with `/usr/bin/time -l` on develop and on this branch in the same session (the baseline's figure above
+was measured differently, so compare these two with each other).
+
+| | develop (before) | Step 8, in memory | Step 8, PostgreSQL | Step 8, in memory, `AI_MAX_CONCURRENT_CALLS=12` |
+|---|---|---|---|---|
+| 4,000 updates in | 174 s (23/s), PostgreSQL | 189 s (21/s) | 187–193 s (21/s) | 172 s (23/s) |
+| Errors | 0 | 1 (the "AI capacity" alert) | 0 | 0 |
+| Tutor busy replies | — | 13 of 200 | 4–9 of 200 | 0 |
+| Tutor question, median / 95% | 1640 / 1662 ms | 13813 / 21398 ms | 12699–13662 / 21213–21404 ms | 1567 / 1576 ms |
+| CPU (user + system) | 35.7 s (~8.9 ms per update) | — | 36.8 s (~9.2 ms per update) | — |
+| Memory, peak | 111 MB (resident) | 102 MB | 101 MB (113 MB resident) | 104 MB |
+
+Every other update took the same time as before (in memory and on PostgreSQL), with the same database calls per
+update (the tutor question: 7).
+
+What it shows:
+1. **The call slots work as designed, and this test is a burst for them.** Every simulated student reaches the
+   tutor at the same point of the same script, so the 200 questions arrive within about 30 s, about 7 a second.
+   Four slots at 1.5 s an answer serve about 2.7 a second: the rest queue for up to `AI_QUEUE_WAIT_SECONDS`
+   (20 s), and the ones that wait longer get "the tutor is busy" with their message given back. With 12 slots
+   the tutor is as fast as before and nobody is refused.
+2. **The provider's limits come first anyway.** Seven questions a second at about 3,000 tokens each is about
+   1.2 million tokens a minute; Groq's free tier allows about 8,000 tokens a minute and 1,000 requests a day for
+   everyone together. Past those limits the questions come back as 429s (also "the tutor is busy"). Raise
+   `AI_MAX_CONCURRENT_CALLS` together with the provider's limits (a paid tier, a backup provider).
+3. **No cost elsewhere**: CPU per update and memory are the same as before; "typing…" while a question waits
+   adds a few cheap Telegram calls.

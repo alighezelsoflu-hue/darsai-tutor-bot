@@ -76,18 +76,24 @@ class Recorder:
         self.times = {}
         self.connections = {}
         self.errors = 0
+        self.busy = 0  # questions that found no free AI call slot (ai.note_busy)
 
     def add(self, kind: str, seconds: float) -> None:
         self.times.setdefault(kind, []).append(seconds)
 
 
 class CountErrors(logging.Handler):
+    """Errors, and "the tutor is busy" (a WARNING from modules.ai, see ai.note_busy)."""
+
     def __init__(self, recorder: Recorder):
-        super().__init__(level=logging.ERROR)
+        super().__init__(level=logging.WARNING)
         self.recorder = recorder
 
     def emit(self, record):
-        self.recorder.errors += 1
+        if record.levelno >= logging.ERROR:
+            self.recorder.errors += 1
+        elif record.name == "modules.ai" and str(record.msg).startswith("AI capacity"):
+            self.recorder.busy += 1
 
 
 def percentile(values, share):
@@ -101,6 +107,7 @@ async def main_async(args) -> None:
     from telegram import CallbackQuery, Message, Update
     from telegram.ext import ExtBot
 
+    import config
     from modules import ai, db, metrics
     from modules.db import connection
     from modules.math import shared
@@ -236,7 +243,8 @@ async def main_async(args) -> None:
     print(f"\n{args.students} students, {updates} updates in {total:.1f} s ({updates / total:.0f} updates/s), storage: {storage}")
     print(f"Arrivals over {args.ramp:.0f} s, ~{args.think:.1f} s between a student's actions, Telegram calls "
           f"{args.telegram_ms:.0f} ms, AI answers {args.ai_seconds:.1f} s, DB pool {os.environ.get('DB_POOL_MAX_SIZE', '5')}")
-    print(f"Import {imported:.1f} s, database setup {migrated:.2f} s, errors logged: {recorder.errors}")
+    print(f"Import {imported:.1f} s, database setup {migrated:.2f} s, errors logged: {recorder.errors}, "
+          f"tutor busy: {recorder.busy} (AI call slots: {config.AI_MAX_CONCURRENT_CALLS})")
     print(f"Memory: peak {peak_after_import:.0f} MB after import, peak {peak:.0f} MB after the run"
           + (f", {current:.0f} MB now" if current is not None else ""))
     print(f"\n{'update':34} {'count':>6} {'median':>9} {'95%':>9} {'slowest':>9} {'DB calls':>9}")

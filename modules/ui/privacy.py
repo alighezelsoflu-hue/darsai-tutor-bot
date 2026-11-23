@@ -37,13 +37,23 @@ def ai_receivers() -> str:
     return AI_PROVIDER_NAMES.get(provider, provider)
 
 
+def backup_receiver() -> str:
+    """The backup AI provider's name when it is another company than the main one (AI_FALLBACK_PROVIDER), else ""."""
+    backup = config.AI_FALLBACK_PROVIDER.lower().strip()
+    if not backup or backup == config.AI_PROVIDER.lower().strip():
+        return ""
+    return AI_PROVIDER_NAMES.get(backup, backup)
+
+
 def policy_text(screen: Screen) -> str:
     s = screen
     parts = [
         owner_line(s) + s.t("privacy.title", bot=BOT_NAME),
         s.t("privacy.stored"),
         s.t("privacy.not_stored"),
-        s.t("privacy.receivers", ai=ai_receivers()) + ("\n" + s.t("privacy.sentry") if config.SENTRY_DSN else ""),
+        s.t("privacy.receivers", ai=ai_receivers())
+        + ("\n" + s.t("privacy.backup_ai", ai=ai_receivers(), backup=backup_receiver()) if backup_receiver() else "")
+        + ("\n" + s.t("privacy.sentry") if config.SENTRY_DSN else ""),
         s.t("privacy.telegram_chat"),
         s.t("privacy.delete"),
     ]

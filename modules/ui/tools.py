@@ -24,9 +24,10 @@ from typing import Dict, List, Optional, Tuple
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Message
 from telegram.error import BadRequest
 
-from modules.ai import AILimitReached, ask_ai_with_memory, log_ai_error
+from modules.ai import AIBusy, AILimitReached, AIQuestionTooLong, ask_ai_with_memory, log_ai_error
 from modules.common import LANGUAGES
 from modules.courses import COURSES
+from modules.i18n import local_digits
 from modules.input_mode import change_input_mode, claim_last_result, get_input_mode, set_input_mode
 from modules.math.plot import create_plot, parse_plot_input
 from modules.math.prompts import math_tutor_prompt
@@ -79,8 +80,11 @@ def ai_error_text(screen: Screen, error: Exception) -> str:
     """Translated text for a failed tutor request. Details go to the log, never to the student."""
     if isinstance(error, AILimitReached):
         return limit_text(screen)
+    if isinstance(error, AIQuestionTooLong):
+        return screen.t("ai.too_long", count=local_digits(screen.lang, error.length),
+                        limit=local_digits(screen.lang, error.limit))
     log_ai_error(error)
-    return screen.t("ai.unavailable")
+    return screen.t("ai.busy" if isinstance(error, AIBusy) else "ai.unavailable")
 
 
 def more_hint(screen: Screen, mode: str) -> str:
@@ -158,7 +162,6 @@ async def run_example(screen: Screen, mode: str, index: str) -> None:
 
 async def ask_tutor(screen: Screen, topic: str, question: str, prompt_topic: str) -> Optional[str]:
     """The tutor's answer, or None after telling the student why there is none."""
-    await screen.typing()
     level = await asyncio.to_thread(get_user_level, screen.chat_id, screen.user_id)
     try:
         return await ask_ai_with_memory(
@@ -169,6 +172,7 @@ async def ask_tutor(screen: Screen, topic: str, question: str, prompt_topic: str
             system_prompt=math_tutor_prompt(level, prompt_topic, LANGUAGES[screen.lang]),
             max_tokens=1000,
             temperature=0.22,
+            typing=screen.typing,  # "typing…" until the answer is there
         )
     except AILimitReached:
         # With the Premium offer, for students who haven't said yet what they'd want from it.

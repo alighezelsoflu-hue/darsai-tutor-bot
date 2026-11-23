@@ -127,6 +127,53 @@ AI_MAX_HISTORY_MESSAGES = int(os.getenv("AI_MAX_HISTORY_MESSAGES", "16"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+AI_PROVIDERS = ("groq", "openrouter", "openai")
+
+# AI capacity (modules/ai.py). Every tutor question shares the provider's limits (Groq's free tier: about 8,000
+# tokens a minute for everyone), so each call sends only the newest whole question-and-answer pairs that fit
+# AI_HISTORY_TOKEN_BUDGET (estimated, never more than AI_MAX_HISTORY_MESSAGES), and at most
+# AI_MAX_CONCURRENT_CALLS run at once per process. A question waits at most AI_QUEUE_WAIT_SECONDS for a free
+# spot and takes at most AI_DEADLINE_SECONDS in all (the wait, the provider and the backup together). When the
+# provider says "too many requests" and asks to wait at most AI_RETRY_MAX_WAIT_SECONDS, the call is tried once
+# more. Questions longer than AI_MAX_QUESTION_CHARS are refused before they count. AI_BUSY_ALERT_THRESHOLD
+# "busy" refusals within AI_BUSY_ALERT_WINDOW_MINUTES are one alert (time for a paid tier).
+AI_HISTORY_TOKEN_BUDGET = _int_env("AI_HISTORY_TOKEN_BUDGET", 1500, minimum=0)
+AI_MAX_CONCURRENT_CALLS = _int_env("AI_MAX_CONCURRENT_CALLS", 4, minimum=1)
+AI_QUEUE_WAIT_SECONDS = _int_env("AI_QUEUE_WAIT_SECONDS", 20, minimum=1)
+AI_DEADLINE_SECONDS = _int_env("AI_DEADLINE_SECONDS", 45, minimum=10)
+AI_RETRY_MAX_WAIT_SECONDS = _int_env("AI_RETRY_MAX_WAIT_SECONDS", 5, minimum=0)
+AI_MAX_QUESTION_CHARS = _int_env("AI_MAX_QUESTION_CHARS", 1500, minimum=100)
+AI_BUSY_ALERT_THRESHOLD = _int_env("AI_BUSY_ALERT_THRESHOLD", 10, minimum=1)
+AI_BUSY_ALERT_WINDOW_MINUTES = _int_env("AI_BUSY_ALERT_WINDOW_MINUTES", 10, minimum=1)
+
+# An optional backup AI provider, tried once when the main one is busy (429), fails on its side (5xx), times out,
+# can't be reached, refuses the key (401/403) or no longer has the model. Empty means off. It uses that
+# provider's API key above. Groq lists its limits per model, so groq with another model may give extra room
+# (its docs only say limits apply per organization: check that the other model's limits stay untouched).
+# When it is another company, the privacy policy names it (ui/privacy.ai_receivers).
+def fallback_problem(provider: str, model: str, keys: dict, main: Tuple[str, str]) -> str:
+    """Why the backup AI setting can't be used ("" when it can)."""
+    if provider not in AI_PROVIDERS:
+        return f"isn't one of {', '.join(AI_PROVIDERS)}"
+    if not model:
+        return "has no AI_FALLBACK_MODEL"
+    if not keys.get(provider):
+        return f"has no {provider.upper()}_API_KEY"
+    if (provider, model) == main:
+        return "is the same provider and model as the main one"
+    return ""
+
+
+AI_FALLBACK_PROVIDER = os.getenv("AI_FALLBACK_PROVIDER", "").strip().strip("\"'").lower()
+AI_FALLBACK_MODEL = os.getenv("AI_FALLBACK_MODEL", "").strip().strip("\"'")
+if AI_FALLBACK_PROVIDER:
+    _problem = fallback_problem(
+        AI_FALLBACK_PROVIDER, AI_FALLBACK_MODEL,
+        {"groq": GROQ_API_KEY, "openrouter": OPENROUTER_API_KEY, "openai": OPENAI_API_KEY}, (AI_PROVIDER, AI_MODEL),
+    )
+    if _problem:
+        SETTING_WARNINGS.append(f"AI_FALLBACK_PROVIDER={AI_FALLBACK_PROVIDER!r} {_problem}, so there is no backup AI.")
+        AI_FALLBACK_PROVIDER = AI_FALLBACK_MODEL = ""
 
 # Subscription MVP settings: AI messages per user per UTC day. 0 or less means unlimited.
 FREE_DAILY_AI_LIMIT = int(os.getenv("FREE_DAILY_AI_LIMIT", "30"))

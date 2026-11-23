@@ -16,7 +16,7 @@ from modules.alerts import (
     blip_text, connection_blips, init_sentry, is_connection_blip, register_alert_handlers, scrub_console_logs,
     start_alerts, stop_alerts,
 )
-from modules.ai import ai_callback_handler, register_ai_handlers
+from modules.ai import ai_callback_handler, close_http_client, open_http_client, register_ai_handlers
 from modules.db import close_pool
 from modules.math.math import register_math_handlers
 from modules.i18n import detect_language, t
@@ -166,6 +166,7 @@ def init_databases() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await asyncio.to_thread(init_databases)
+    await open_http_client()  # one connection pool for every AI call
     await telegram_app.initialize()
     await start_alerts(telegram_app.bot)
     await telegram_app.start()
@@ -185,6 +186,7 @@ async def lifespan(app: FastAPI):
         await stop_alerts()  # alerts still being sent
         await telegram_app.stop()
         await telegram_app.shutdown()
+        await close_http_client()
         await asyncio.to_thread(close_pool)
 
 

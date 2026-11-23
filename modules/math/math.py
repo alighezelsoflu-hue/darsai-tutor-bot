@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from config import BOT_NAME
-from modules.ai import ai_error_message, ask_ai_with_memory, clear_history
+from modules.ai import ai_error_message, ask_ai_with_memory, chat_typing, clear_history
 from modules.common import LANGUAGES, extract_language, reply_long
 from modules.ui import home, learn, practice
 from modules.ui.core import Screen
@@ -138,6 +138,7 @@ async def math_tutor_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             system_prompt=prompt,
             max_tokens=1000,
             temperature=0.22,
+            typing=chat_typing(context, update.effective_chat.id),
         )
     except Exception as error:
         await update.message.reply_text(ai_error_message(error))
@@ -191,6 +192,7 @@ async def solve_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 system_prompt=math_tutor_prompt(level, "solve", language),
                 max_tokens=900,
                 temperature=0.22,
+                typing=chat_typing(context, update.effective_chat.id),
             )
         except Exception as error:
             await update.message.reply_text(ai_error_message(error))
