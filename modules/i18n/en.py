@@ -85,6 +85,7 @@ STRINGS = {
     "privacy.stored": "What the bot saves about you, and why:\n• Your Telegram user id, and the chats you use the bot in, so it knows it's you\n• Your language, level and settings\n• Your practice results and progress\n• Your questions to the tutor and its answers, so it remembers the conversation (⚙️ Settings → 🧹 Clear tutor memory deletes them)\n• How many tutor messages you send each day, for the daily limit and our usage numbers. After 🗑 Delete my data, only today's count stays until the end of the day, so the daily limit still works.\n• Your 💎 Premium picks, the courses you tapped 🔔 Notify me for, and the link you found the bot through, if any\n• The days you used the bot, for our usage numbers\n• If you test the DarsAI app: each time it opens, how long it takes to load and your kind of device (Android, iPhone or computer)",
     "privacy.not_stored": "It doesn't save your name, username, phone number or photos.",
     "privacy.receivers": "Who else gets data:\n• Your questions to the tutor, with your recent conversation on that topic, go to {ai} (USA), which writes the answers. Without your name or Telegram id.\n• The bot runs on Render (server) and Neon (database) in Frankfurt, Germany. The server's logs can show your Telegram user id for a short time.",
+    "privacy.backup_ai": "• When {ai} is busy or down, the same goes to {backup} (USA) instead.",
     "privacy.sentry": "• Error reports go to Sentry, without what you send.",
     "privacy.telegram_chat": "Messages in this chat are kept by Telegram, separately from the bot. To remove them, delete the chat in Telegram.",
     "privacy.delete": "🗑 Delete my data (below, or /deletemydata) deletes everything the bot saved about you, at once.",
@@ -178,6 +179,8 @@ STRINGS = {
     "ai.limit": "⏳ You've used all {limit} tutor messages for today. They come back at 00:00 UTC. Practice, Learn, Solve and Plot still work.",
     "ai.limit_offer": "💎 Premium is coming, with more tutor messages every day. What would you want most from it? Pick as many as you like:",
     "ai.unavailable": "😕 The tutor isn't available right now. Please try again in a few minutes.",
+    "ai.busy": "⏳ The tutor is very busy right now. Please ask again in a minute. This one didn't count toward today's messages.",
+    "ai.too_long": "✂️ That question is too long ({count} characters). Please shorten it to at most {limit} characters.",
 
     # Solve
     "solve.text": "🧮 Solve · {course}\nType an equation and I'll solve it, for example:",

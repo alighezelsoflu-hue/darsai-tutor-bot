@@ -22,7 +22,7 @@ from Europe, so the GDPR may apply. Please check it with someone qualified.
 | `darsai_mastery` | User id, level, topic, mastery (0–1), correct and wrong counts, last practice time | Progress, the next difficulty, ▶️ Continue, Suggested next | Until deleted |
 | `darsai_active_question` | Chat id, user id, the current practice question (generated numbers, the answer, the message ids showing it) | Checking the typed answer; one per chat | Until answered or replaced (typed text stops counting after 24 hours) |
 | `darsai_input_mode` | Chat id, user id, the open tool (tutor, solve, plot), its message ids, the last equation solved (as typed) | Sending typed text to the right tool; 🧑‍🏫 Explain step by step | Until the student leaves the tool (it stops counting after 24 hours) |
-| `darsai_ai_messages` | Chat id, user id, topic, role, the text of each tutor question and answer, time | The tutor remembers the conversation (the last `AI_MAX_HISTORY_MESSAGES` per topic are sent) | Until 🧹 Clear tutor memory, `/newchat` or deletion. Phase 1 step 11 adds: newest 16 per conversation, at most 90 days |
+| `darsai_ai_messages` | Chat id, user id, topic, role, the text of each tutor question and answer, time | The tutor remembers the conversation (the newest whole questions and answers per topic that fit `AI_HISTORY_TOKEN_BUDGET` estimated tokens are sent, at most `AI_MAX_HISTORY_MESSAGES`) | Until 🧹 Clear tutor memory, `/newchat` or deletion. Phase 1 step 11 adds: newest 16 per conversation, at most 90 days |
 | `darsai_ai_usage` | User id, UTC day, tutor messages that day | The daily limit; `/stats` | Until deleted. Delete my data keeps **today's** row until the day ends, so deleting can't reset the daily limit (otherwise a student could delete again and again for unlimited tutor messages, at the bot owner's cost). After that day it is removed at the next startup or Delete my data (`privacy.drop_kept_usage`) |
 | `darsai_daily_activity` | UTC day, user id, practice answers that day | `/stats` (active students, practice answers) | Until deleted |
 | `darsai_first_seen` | User id, start-link source (if any), first time seen | `/stats` (new students per start link) | Until deleted |
@@ -43,6 +43,9 @@ used, and nothing of it is stored or logged.
   have the current bottom keyboard (`setup._current`). Cleared by Delete my data and at every restart.
 - **The AI provider** (`AI_PROVIDER`, Groq by default, a US company) receives each tutor question with the
   recent conversation on that topic and the system prompt. No user id, chat id or name is sent.
+- **The backup AI provider**, only when `AI_FALLBACK_PROVIDER` is set: the same, for a question the main provider
+  couldn't answer (busy, down, too slow, a key or model problem). OpenRouter and OpenAI are US companies too. When it
+  is another company than `AI_PROVIDER`, the privacy policy names it (`privacy.backup_ai`, both languages).
 - **Render** (server, Frankfurt) keeps the console log for a limited time. It can contain Telegram user ids
   (e.g. "Ignored /stats from user id …", "Deleted the data of user id …") and error messages; secrets are
   scrubbed (`modules/alerts.py`), and update contents are never logged.

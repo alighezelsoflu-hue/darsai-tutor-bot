@@ -311,28 +311,35 @@ def blip_text(error: BaseException) -> str:
     return shorten(scrub(text), 120)
 
 
-class ConnectionBlips:
-    """Per process: when the recent connection blips were, to tell a blip from Telegram being unreachable."""
+class BurstCounter:
+    """Per process: when the recent events of one kind were, to tell a few from too many (e.g. Telegram connection
+    blips from Telegram being unreachable). The threshold and the window are read from config by name, so tests
+    and settings can change them."""
 
-    def __init__(self) -> None:
+    def __init__(self, threshold_setting: str, window_minutes_setting: str) -> None:
+        self.threshold_setting, self.window_minutes_setting = threshold_setting, window_minutes_setting
         self._lock = threading.Lock()
         self._times: Deque[float] = deque(maxlen=10_000)
         self._last_alarm: Optional[float] = None
 
-    def note(self) -> Tuple[int, bool]:
-        """(blips within NETWORK_ALERT_WINDOW_MINUTES, this one included; whether to log "Telegram unreachable").
+    @property
+    def window_minutes(self) -> int:
+        return getattr(config, self.window_minutes_setting)
 
-        True when there are NETWORK_ALERT_THRESHOLD of them, at most once per window: while the trouble lasts, the
-        ERROR comes again each window (and the alert grouping holds back the repeats as usual).
+    def note(self) -> Tuple[int, bool]:
+        """(events within the window, this one included; whether to log the one ERROR now).
+
+        True when there are as many as the threshold, at most once per window: while the trouble lasts, the ERROR
+        comes again each window (and the alert grouping holds back the repeats as usual).
         """
         now = time.time()
-        window = config.NETWORK_ALERT_WINDOW_MINUTES * 60
+        window = self.window_minutes * 60
         with self._lock:
             self._times.append(now)
             while now - self._times[0] >= window:
                 self._times.popleft()
             count = len(self._times)
-            alarm = count >= config.NETWORK_ALERT_THRESHOLD and (
+            alarm = count >= getattr(config, self.threshold_setting) and (
                 self._last_alarm is None or now - self._last_alarm >= window
             )
             if alarm:
@@ -340,13 +347,13 @@ class ConnectionBlips:
             return count, alarm
 
     def reset(self) -> None:
-        """Forget the blips (tests)."""
+        """Forget the events (tests)."""
         with self._lock:
             self._times.clear()
             self._last_alarm = None
 
 
-connection_blips = ConnectionBlips()
+connection_blips = BurstCounter("NETWORK_ALERT_THRESHOLD", "NETWORK_ALERT_WINDOW_MINUTES")
 
 
 def install_log_handler() -> None:

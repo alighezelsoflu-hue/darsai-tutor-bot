@@ -106,6 +106,7 @@ def main() -> None:
     from telegram import Update
 
     from main import init_databases, setup_bot_commands, setup_bot_descriptions, telegram_app
+    from modules.ai import close_http_client, open_http_client
     from modules.alerts import start_alerts, stop_alerts
     from modules.ui.miniapp import setup_menu_buttons
     from modules import metrics
@@ -113,6 +114,7 @@ def main() -> None:
 
     async def post_init(app) -> None:
         await ensure_not_production(app.bot)
+        await open_http_client()  # one connection pool for every AI call
         await start_alerts(app.bot)
         await asyncio.to_thread(init_databases)
         await setup_bot_commands()
@@ -128,6 +130,7 @@ def main() -> None:
         await stop_alerts()  # alerts still being sent, while the bot can still send
 
     async def post_shutdown(app) -> None:
+        await close_http_client()
         await asyncio.to_thread(close_pool)
 
     telegram_app.post_init = post_init
