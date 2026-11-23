@@ -36,6 +36,8 @@ from modules.db import connection, db_configured
 PLATFORMS = ("android", "android_x", "ios", "tdesktop", "macos", "weba", "webk", "web", "unigram", "unknown")
 TIMING_FIELDS = ("dns_ms", "connect_ms", "ttfb_ms", "dom_ms", "total_ms", "api_ms")
 MAX_TIMING_MS = 600_000
+# Rows kept per user per day (opens and "didn't open" together): one tester's valid launch data can't flood the table.
+MAX_PINGS_PER_USER_PER_DAY = 50
 # Clock differences between Telegram's servers and this one.
 FUTURE_TOLERANCE_SECONDS = 60
 
@@ -95,28 +97,33 @@ def clean_ping(payload: Dict) -> Dict:
     return row
 
 
-def record_open(user_id: int, payload: Dict) -> None:
-    """The page opened: save its load timings."""
-    _save(user_id, dict(clean_ping(payload), opened=True))
+def record_open(user_id: int, payload: Dict) -> bool:
+    """The page opened: save its load timings. False when the user already has the day's maximum."""
+    return _save(user_id, dict(clean_ping(payload), opened=True))
 
 
-def record_failure(user_id: int) -> None:
-    """A tester tapped "❌ It didn't open"."""
-    _save(user_id, {"opened": False, "platform": None, "bridge": None, **{field: None for field in TIMING_FIELDS}})
+def record_failure(user_id: int) -> bool:
+    """A tester tapped "❌ It didn't open". False when the user already has the day's maximum."""
+    return _save(user_id, {"opened": False, "platform": None, "bridge": None, **{field: None for field in TIMING_FIELDS}})
 
 
-def _save(user_id: int, row: Dict) -> None:
+def _save(user_id: int, row: Dict) -> bool:
+    day = utc_today()
     if db_configured():
         with connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO darsai_miniapp_ping
                     (user_id, day, opened, platform, bridge, dns_ms, connect_ms, ttfb_ms, dom_ms, total_ms, api_ms)
-                VALUES (%(user_id)s, %(day)s, %(opened)s, %(platform)s, %(bridge)s, %(dns_ms)s, %(connect_ms)s,
-                        %(ttfb_ms)s, %(dom_ms)s, %(total_ms)s, %(api_ms)s)
-            """, dict(row, user_id=user_id, day=utc_today()))
-        return
+                SELECT %(user_id)s, %(day)s, %(opened)s, %(platform)s, %(bridge)s, %(dns_ms)s, %(connect_ms)s,
+                       %(ttfb_ms)s, %(dom_ms)s, %(total_ms)s, %(api_ms)s
+                WHERE (SELECT COUNT(*) FROM darsai_miniapp_ping WHERE user_id = %(user_id)s AND day = %(day)s) < %(cap)s
+            """, dict(row, user_id=user_id, day=day, cap=MAX_PINGS_PER_USER_PER_DAY))
+            return cur.rowcount > 0
     with _LOCK:
-        _FALLBACK[(user_id, next(_counter))] = dict(row, day=utc_today())
+        if sum(1 for (uid, _), saved in _FALLBACK.items() if uid == user_id and saved["day"] == day) >= MAX_PINGS_PER_USER_PER_DAY:
+            return False
+        _FALLBACK[(user_id, next(_counter))] = dict(row, day=day)
+        return True
 
 
 def ping_summary(today: date, exclude: Iterable[int] = ()) -> Dict:

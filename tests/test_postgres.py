@@ -464,6 +464,14 @@ class PostgresTests(TelegramMocks):
         self.assertEqual(summary["week"], summary["today"])
         text = stats.format_stats(stats.collect_stats(activity.utc_today(), admins=[99]))
         self.assertIn("📱 Mini App test, today: 3 opens by 2 testers, median load 800 ms, ❌ didn't open 1", text)
+        # At most MAX_PINGS_PER_USER_PER_DAY rows per user a day (opens and failures together).
+        for _ in range(miniapp.MAX_PINGS_PER_USER_PER_DAY - 1):
+            self.assertTrue(miniapp.record_failure(7))
+        self.assertFalse(miniapp.record_open(7, {"total_ms": 1}))
+        self.assertFalse(miniapp.record_failure(7))
+        self.assertEqual(execute("SELECT COUNT(*) FROM darsai_miniapp_ping WHERE user_id = 7"), [(miniapp.MAX_PINGS_PER_USER_PER_DAY,)])
+        execute("UPDATE darsai_miniapp_ping SET day = day - 1 WHERE user_id = 7")
+        self.assertTrue(miniapp.record_open(7, {"total_ms": 1}), "a new day")
 
     def test_delete_my_data_is_all_or_nothing(self):
         main.init_databases()

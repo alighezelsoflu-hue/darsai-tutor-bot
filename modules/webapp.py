@@ -151,6 +151,10 @@ async def my_progress(request: Request) -> JSONResponse:
 @router.post("/api/miniapp/ping")
 async def ping(request: Request) -> JSONResponse:
     student = caller(request)
+    # Refused by its declared size before it is read, and again by its real size (a body without the header).
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_PING_BYTES:
+        raise HTTPException(status_code=413, detail="Too large.")
     body = await request.body()
     if len(body) > MAX_PING_BYTES:
         raise HTTPException(status_code=413, detail="Too large.")

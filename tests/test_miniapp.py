@@ -152,6 +152,28 @@ class WebTests(TelegramMocks):
         for private in ("Sara", "Ahmadi", "sara_a", "userpic"):
             self.assertNotIn(private, stored)
 
+    def test_a_large_ping_is_refused_before_it_is_read(self):
+        from starlette.requests import Request
+
+        async def receive():
+            raise AssertionError("the body must not be read")
+
+        scope = {"type": "http", "method": "POST", "path": "/api/miniapp/ping", "query_string": b"", "headers": [
+            (b"authorization", f"tma {init_data()}".encode()), (b"content-length", b"99999")]}
+        with self.assertRaises(webapp.HTTPException) as refused:
+            run_async(webapp.ping(Request(scope, receive)))
+        self.assertEqual(refused.exception.status_code, 413)
+        self.assertEqual(miniapp._FALLBACK, {})
+
+    def test_at_most_50_pings_per_user_a_day(self):
+        headers = {"Authorization": f"tma {init_data()}"}
+        for _ in range(miniapp.MAX_PINGS_PER_USER_PER_DAY):
+            self.assertEqual(self.client.post("/api/miniapp/ping", headers=headers, json={"total_ms": 1}).status_code, 200)
+        self.client.post("/api/miniapp/ping", headers=headers, json={"total_ms": 1})
+        self.assertFalse(miniapp.record_failure(STUDENT), "the failures count too")
+        self.assertEqual(len(miniapp._FALLBACK), miniapp.MAX_PINGS_PER_USER_PER_DAY)
+        self.assertTrue(miniapp.record_open(TESTER, {"total_ms": 1}), "other users are not affected")
+
     def test_ping_refuses_junk(self):
         headers = {"Authorization": f"tma {init_data()}"}
         self.assertEqual(self.client.post("/api/miniapp/ping", headers=headers, content=b"not json").status_code, 400)
