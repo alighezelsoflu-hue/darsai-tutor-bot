@@ -134,3 +134,30 @@ What it shows:
    `AI_MAX_CONCURRENT_CALLS` together with the provider's limits (a paid tier, a backup provider).
 3. **No cost elsewhere**: CPU per update and memory are the same as before; "typing…" while a question waits
    adds a few cheap Telegram calls.
+
+## Phase 1 step 9 (speed limit), 2026-11-24
+
+Branch `p1-speed-limit` on develop `2a54ad4`, the same laptop and the normal load (`--students 200 --ramp 20
+--think 5`, Telegram 60 ms, AI answers 1.5 s, pool 5). develop and this branch ran side by side in the same
+session (four runs at once, PostgreSQL on separate test databases); CPU from `/usr/bin/time -l`. The report now
+also counts the updates the speed limit refused.
+
+| | develop, in memory | Step 9, in memory | develop, PostgreSQL | Step 9, PostgreSQL |
+|---|---|---|---|---|
+| 4,000 updates in | 186 s (21/s) | 189 s (21/s) | 188 s (21/s) | 188 s (21/s) |
+| Errors | 1 (the "AI capacity" alert) | 1 (the same) | 0 | 0 |
+| Refused by the speed limit | — | 0 | — | 0 |
+| CPU (user + system) | 22.6 s (~5.7 ms per update) | 22.5 s (~5.6 ms per update) | 32.1 s (~8.0 ms per update) | 33.0 s (~8.2 ms per update) |
+| Memory, peak resident | 102 MB | 105 MB | 105 MB | 105 MB |
+
+Every kind of update took the same time as on develop (within a few ms), with the same database calls: an allowed
+update costs the limit a dictionary lookup under a lock and no database call. A refused tap costs one Telegram call (the
+pop-up; the student's language is read once while they keep being refused), and a message after the first
+warning costs nothing.
+
+The heavy run (`python scripts/load_test.py`: 300 students, ~0.5 s between actions, in memory) refused nothing
+either, and matched develop: 6,000 updates in 50 s (120/s on both; CPU 36–38 s on both). That is slower than the
+baseline's ~200/s because of step 8: the tutor's 4 call slots queue the 300 questions (about 200 get "the tutor
+is busy"), not because of the limit; with `AI_MAX_CONCURRENT_CALLS=300` the same run does 190/s, still with
+nothing refused. Each simulated student's 20 updates include that queue, so they take longer
+than 10 s. Real students would hit the limit by tapping or sending very fast, which this script doesn't do.

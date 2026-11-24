@@ -15,7 +15,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import courses, groups, home, learn, miniapp, practice, premium, privacy, progress, setup, tools, typed
+from . import courses, groups, home, learn, limit, miniapp, practice, premium, privacy, progress, setup, tools, typed
 from .core import CALLBACK_PREFIX, Screen, unpack
 
 Route = Callable[[Screen, List[str]], Awaitable[None]]
@@ -110,7 +110,9 @@ async def unknown_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 def register_ui_handlers(app: Application) -> None:
-    # Before everything else: posts sent as the group or as a channel have no real student behind them.
+    # After the activity tracker (group -3), before everything else: the per-student speed limit.
+    app.add_handler(TypeHandler(Update, limit.speed_limit), group=-2)
+    # Then posts sent as the group or as a channel, which have no real student behind them.
     app.add_handler(
         MessageHandler(
             filters.SenderChat.ALL & ~filters.IS_AUTOMATIC_FORWARD & (filters.COMMAND | filters.REPLY),

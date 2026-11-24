@@ -36,3 +36,4 @@ class LoadTestTests(TelegramMocks):
         self.assertEqual(sum(len(times) for times in recorder.times.values()), 4 * 20)
         self.assertIn("4 students, 80 updates", output.getvalue())
         self.assertIn("tutor: question (AI)", output.getvalue())
+        self.assertIn("Speed limit: 0 updates refused (20 per 10 s)", output.getvalue())

@@ -109,6 +109,13 @@ else:
     MINIAPP_URL = _miniapp_url or (f"{WEBHOOK_URL.rstrip('/')}/app" if WEBHOOK_URL else "")
 MINIAPP_AUTH_MAX_AGE_SECONDS = _int_env("MINIAPP_AUTH_MAX_AGE_SECONDS", 3600, minimum=60)
 
+# Per-student speed limit (modules/ratelimit.py), admins excepted: at most RATE_LIMIT_ACTIONS actions (chat buttons and
+# messages, the Mini App's changes) in any RATE_LIMIT_WINDOW_SECONDS, and apart from those RATE_LIMIT_API_READS Mini
+# App page loads. Per server process.
+RATE_LIMIT_ACTIONS = _int_env("RATE_LIMIT_ACTIONS", 20, minimum=1)
+RATE_LIMIT_API_READS = _int_env("RATE_LIMIT_API_READS", 60, minimum=1)
+RATE_LIMIT_WINDOW_SECONDS = _int_env("RATE_LIMIT_WINDOW_SECONDS", 10, minimum=1)
+
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 # How long a migration waits for a table lock (e.g. a busy table it ALTERs) before it gives up and startup stops.

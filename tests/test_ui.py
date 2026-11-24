@@ -12,7 +12,7 @@ from telegram.error import TimedOut
 from telegram.ext import ApplicationHandlerStop, CallbackQueryHandler, CommandHandler, ExtBot
 
 import main
-from modules import activity, ai, courses, input_mode, miniapp, notify, premium, stats, student
+from modules import activity, ai, courses, input_mode, miniapp, notify, premium, ratelimit, stats, student
 from modules.i18n import RTL_LANGUAGES, STRINGS, detect_language, local_digits, t
 from modules.math import math as math_commands
 from modules.math import shared
@@ -98,6 +98,7 @@ class TelegramMocks(unittest.TestCase):
         miniapp._FALLBACK.clear()
         stats._seen.clear()
         setup._current.clear()
+        ratelimit.clear()
         # Sent messages get ids 77 (replies) and 78 (new messages). Edited ones keep 5.
         self.reply_text = self._patch(Message, "reply_text", SimpleNamespace(message_id=77))
         self.answer = self._patch(CallbackQuery, "answer")

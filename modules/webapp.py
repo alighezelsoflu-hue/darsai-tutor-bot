@@ -6,21 +6,24 @@
     POST /api/miniapp/ping    the page's load timings (Telegram launch data required)
 
 Every /api route takes the student from Telegram's signed launch data only (miniapp.check_init_data), sent as
-"Authorization: tma <initData>", and answers 401 without it. The page loads nothing from other hosts (many may
-be blocked in Iran): no fonts, no CDN, no telegram.org script. The headers allow only this server
+"Authorization: tma <initData>", and answers 401 without it, through api_student(kind), which also applies the
+student's speed limit (modules/ratelimit.py) and answers 429 over it. The page loads nothing from other hosts
+(many may be blocked in Iran): no fonts, no CDN, no telegram.org script. The headers allow only this server
 (Content-Security-Policy), and only Telegram's web version may embed the page.
 """
 
 import asyncio
 import json
+import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 import config
+from modules import ratelimit
 from modules.i18n import STRINGS, UI_LANGUAGES, detect_language, is_rtl, level_label, local_digits, t
 from modules.math.shared import get_mastery, get_user_level
 from modules.math.topics import LEVEL_ORDER, topics_for_level
@@ -86,6 +89,30 @@ def caller(request: Request) -> Dict:
     return student
 
 
+# The budget each kind of route uses. Reads have their own, larger one, so switching tabs quickly never blocks
+# the chat's buttons; writes share the chat's.
+API_BUDGETS = {"read": ratelimit.READS, "write": ratelimit.ACTIONS}
+
+
+def api_student(kind: str):
+    """An /api route's dependency: the student (caller(), else 401), within their speed limit (else 429).
+
+    kind: "read" for what only shows something (page loads, the ping), "write" for what changes something.
+    The page shows its own app.slow text on a 429.
+    """
+    budget = API_BUDGETS[kind]
+
+    async def dependency(request: Request) -> Dict:
+        student = caller(request)
+        if not budget.allow(student["user_id"]):
+            wait = max(1, math.ceil(budget.retry_after(student["user_id"])))
+            raise HTTPException(status_code=429, detail="Too many requests. Wait a few seconds.",
+                                headers={"Retry-After": str(wait)})
+        return student
+
+    return dependency
+
+
 def language_of(user_id: int, telegram_language: Optional[str]) -> str:
     """Blocking. The language the student chose in the bot, else a guess from Telegram's language code."""
     saved = get_student(user_id)["language"]
@@ -138,8 +165,7 @@ def progress_payload(user_id: int, telegram_language: Optional[str]) -> Dict:
 
 
 @router.get("/api/me/progress")
-async def my_progress(request: Request) -> JSONResponse:
-    student = caller(request)
+async def my_progress(student: Dict = Depends(api_student("read"))) -> JSONResponse:
     payload = await asyncio.to_thread(progress_payload, student["user_id"], student["language_code"])
     return JSONResponse(payload, headers=HEADERS)
 
@@ -149,8 +175,7 @@ async def my_progress(request: Request) -> JSONResponse:
 # ------------------------------------------------------------
 
 @router.post("/api/miniapp/ping")
-async def ping(request: Request) -> JSONResponse:
-    student = caller(request)
+async def ping(request: Request, student: Dict = Depends(api_student("read"))) -> JSONResponse:
     # Refused by its declared size before it is read, and again by its real size (a body without the header).
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > MAX_PING_BYTES:

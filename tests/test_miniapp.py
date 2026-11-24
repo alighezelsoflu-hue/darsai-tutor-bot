@@ -161,7 +161,7 @@ class WebTests(TelegramMocks):
         scope = {"type": "http", "method": "POST", "path": "/api/miniapp/ping", "query_string": b"", "headers": [
             (b"authorization", f"tma {init_data()}".encode()), (b"content-length", b"99999")]}
         with self.assertRaises(webapp.HTTPException) as refused:
-            run_async(webapp.ping(Request(scope, receive)))
+            run_async(webapp.ping(Request(scope, receive), {"user_id": STUDENT, "language_code": "en"}))
         self.assertEqual(refused.exception.status_code, 413)
         self.assertEqual(miniapp._FALLBACK, {})
 

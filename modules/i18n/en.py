@@ -101,6 +101,7 @@ STRINGS = {
     "app.open_in_telegram": "Open DarsAI from Telegram: the 📚 button next to the message box.",
     "app.reopen": "This page has expired. Close it and open it again from the 📚 button.",
     "app.offline": "Couldn't reach DarsAI. Check your connection and try again.",
+    "app.slow": "⏳ A bit slower, please! Wait a few seconds and try again.",
     "app.retry": "Try again",
     "app.opened_in": "Opened in {seconds} s",
     "app.not_started": "Not started yet",
@@ -247,6 +248,9 @@ STRINGS = {
     "toast.question_over": "This question is already finished.",
     "toast.expired": "This button has expired.",
     "toast.old_button": "This button is from an old version. Send /start for the menu.",
+    # The speed limit (ui/limit.py): a button press (pop-up) and the one warning for messages.
+    "rate.button": "⏳ A bit slower, please! Try again in a few seconds.",
+    "rate.message": "⏳ A bit slower, please! I'll skip your messages for a few seconds; send them again after that.",
 
     # Group chats
     "group.welcome": "👋 Hi, I'm {bot}! Everyone can send /start to get their own menu. To answer my questions, reply to my messages.",
