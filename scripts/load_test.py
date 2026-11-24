@@ -13,7 +13,8 @@ sent anywhere; everything else (handlers, storage, the database, Plot's drawing)
 With --database-url the database's name must contain "test": its darsai_* tables are dropped first.
 
 The report: for each kind of update, how many, and how long the handler took (median, 95th percentile,
-slowest), plus errors, throughput and the process's memory.
+slowest), plus errors, throughput, the process's memory, and the updates the speed limit refused (each student
+sends 20 updates; with a short --think some may come faster than RATE_LIMIT_ACTIONS per window).
 """
 
 import argparse
@@ -108,7 +109,7 @@ async def main_async(args) -> None:
     from telegram.ext import ExtBot
 
     import config
-    from modules import ai, db, metrics
+    from modules import ai, db, metrics, ratelimit
     from modules.db import connection
     from modules.math import shared
     imported = time.monotonic() - import_started
@@ -225,6 +226,7 @@ async def main_async(args) -> None:
         await send("notify me", button_update(uid, lang, "c:physics:n"))
         await send("premium pick", button_update(uid, lang, "prem:a:photo:m"))
 
+    ratelimit.clear()
     began = time.monotonic()
     try:
         await asyncio.gather(*(session(n) for n in range(args.students)))
@@ -245,6 +247,8 @@ async def main_async(args) -> None:
           f"{args.telegram_ms:.0f} ms, AI answers {args.ai_seconds:.1f} s, DB pool {os.environ.get('DB_POOL_MAX_SIZE', '5')}")
     print(f"Import {imported:.1f} s, database setup {migrated:.2f} s, errors logged: {recorder.errors}, "
           f"tutor busy: {recorder.busy} (AI call slots: {config.AI_MAX_CONCURRENT_CALLS})")
+    print(f"Speed limit: {ratelimit.ACTIONS.refused} updates refused ({config.RATE_LIMIT_ACTIONS} per "
+          f"{config.RATE_LIMIT_WINDOW_SECONDS} s)")
     print(f"Memory: peak {peak_after_import:.0f} MB after import, peak {peak:.0f} MB after the run"
           + (f", {current:.0f} MB now" if current is not None else ""))
     print(f"\n{'update':34} {'count':>6} {'median':>9} {'95%':>9} {'slowest':>9} {'DB calls':>9}")

@@ -339,6 +339,7 @@ def log_admin_setting() -> None:
 
 def register_stats_handlers(app: Application) -> None:
     log_admin_setting()
-    # Before everything else (group -2), so every update is seen even when a later handler stops it.
-    app.add_handler(TypeHandler(Update, track_activity), group=-2)
+    # Before everything else (group -3), so every update is seen even when a later handler stops it (the speed
+    # limit in group -2, the anonymous-sender check in group -1).
+    app.add_handler(TypeHandler(Update, track_activity), group=-3)
     app.add_handler(CommandHandler("stats", stats_command))

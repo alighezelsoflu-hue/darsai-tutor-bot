@@ -40,7 +40,10 @@ used, and nothing of it is stored or logged.
 ## Outside the database
 
 - **In memory (per process):** user ids the activity tracker has seen today (`stats._seen`) and students who
-  have the current bottom keyboard (`setup._current`). Cleared by Delete my data and at every restart.
+  have the current bottom keyboard (`setup._current`). The speed limit (`modules/ratelimit.py`): the times of
+  each student's actions in the last `RATE_LIMIT_WINDOW_SECONDS` (10 s) and of their last "⏳ a bit slower"
+  warning, and their interface language while they are being slowed down, dropped once they are older than that (idle students at most a minute later). Cleared by Delete my
+  data and at every restart.
 - **The AI provider** (`AI_PROVIDER`, Groq by default, a US company) receives each tutor question with the
   recent conversation on that topic and the system prompt. No user id, chat id or name is sent.
 - **The backup AI provider**, only when `AI_FALLBACK_PROVIDER` is set: the same, for a question the main provider

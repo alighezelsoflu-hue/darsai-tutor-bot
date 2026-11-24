@@ -19,7 +19,7 @@ from telegram.ext import ContextTypes
 
 import config
 from config import BOT_NAME
-from modules import stats
+from modules import ratelimit, stats
 from modules.privacy import delete_student
 
 from . import setup
@@ -82,6 +82,7 @@ def forget_in_process(update_context, user_id: int) -> None:
     """The per-process caches that hold user ids. A new cache with user ids belongs here too."""
     stats._seen.discard(user_id)
     setup._current.discard(user_id)
+    ratelimit.forget(user_id)
     application = getattr(update_context, "application", None)
     if application is not None:
         application.drop_user_data(user_id)

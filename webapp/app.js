@@ -192,6 +192,7 @@
   fetch("/api/me/progress", { headers: { "Authorization": "tma " + initData } })
     .then(function (response) {
       if (response.status === 401) throw new Error("expired");
+      if (response.status === 429) throw new Error("slow");
       if (!response.ok) throw new Error("server");
       return response.json();
     })
@@ -203,6 +204,7 @@
       report(initData, bridge, apiMs, totalMs);
     })
     .catch(function (error) {
-      showMessage(error && error.message === "expired" ? "app.reopen" : "app.offline", true);
+      var reason = error && error.message;
+      showMessage(reason === "expired" ? "app.reopen" : reason === "slow" ? "app.slow" : "app.offline", true);
     });
 })();
